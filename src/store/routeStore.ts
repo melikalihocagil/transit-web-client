@@ -5,22 +5,32 @@ import {
   insertVia,
   splitViasAtStop,
   isSameVia,
+  isSameCoordinate,
   normalizeViaSequences,
   snapViasToLegs,
 } from '../model';
 import { routeApi, queryClient } from '../api';
 import { routingPipeline } from './routingPipeline';
+import { useStopDraftStore } from './stopDraftStore';
 
 export interface RouteHistorySnapshot {
   stops: Stop[];
   vias: Via[];
 }
 
+/** Bir hat taslağının sunucuya kaydedilen kısmı (backend durak koordinatını hatta kaydetmez; sıra ve via'lar). */
+export type SavedRoute = Pick<RouteDetail, 'stops' | 'vias'>;
+
 export interface RouteStoreState {
   routeId: string | null;
   published: RouteDetail | null;
-  /** Kaydedilmemiş hat taslakları (anahtar: routeId). Seçili hattın taslağı `selectActiveDraft` ile türetilir. */
+  /** Hat taslakları (anahtar: routeId). Seçili hattın taslağı `selectActiveDraft` ile türetilir. */
   drafts: Record<string, RouteDetail>;
+  /**
+   * Sunucuda kayıtlı olduğunu bildiğimiz hat taslakları (anahtar: routeId). Hat yüklenince ve kayıttan
+   * sonra güncellenir. Kaydedilmemiş hatlar `drafts` ile karşılaştırılarak türetilir (`selectUnsavedRouteIds`).
+   */
+  saved: Record<string, SavedRoute>;
   isLoading: boolean;
   isRouting: boolean;
   error: string | null;
@@ -53,7 +63,28 @@ type SetState = (
 type GetState = () => RouteStoreState;
 
 /** Kalıcı hafızaya yazılan alanlar (taslakların navigation'ı hariç). */
-type PersistedRouteState = Pick<RouteStoreState, 'routeId' | 'drafts'>;
+type PersistedRouteState = Pick<RouteStoreState, 'routeId' | 'drafts' | 'saved'>;
+
+/** Kayıt sürerken (durak + hat kaydı tek akışta; bkz. `saveAll`) hat taslakları da düzenlenemez. */
+const isSaveLocked = (): boolean => useStopDraftStore.getState().status === 'saving';
+
+/** Sunucudan gelen taslağın karşılaştırmada kullanılan kısmı (via sıraları yerel taslaktaki gibi normalize). */
+export function toSavedRoute(detail: RouteDetail): SavedRoute {
+  return { stops: detail.stops, vias: normalizeViaSequences(detail.vias) };
+}
+
+/**
+ * Hat taslağı kayıtlı haliyle aynı mı: yalnızca durak id sırası ve via'lar (kimlik + konum) karşılaştırılır.
+ * Via sırası dizide farklı olabilir (sunucu sıralı döndürür); konumda ~1 m tolerans vardır (OSRM oturtması / DB yuvarlaması).
+ */
+function isSameSavedRoute(a: SavedRoute, b: SavedRoute): boolean {
+  return (
+    a.stops.length === b.stops.length &&
+    a.stops.every((stop, i) => stop.stopId === b.stops[i].stopId) &&
+    a.vias.length === b.vias.length &&
+    a.vias.every((via) => b.vias.some((other) => isSameVia(via, other) && isSameCoordinate(via, other)))
+  );
+}
 
 // Seçici: Seçili hattın taslağı (saklanan nesnenin kendisi döner; her çağrıda yeni nesne üretilmez)
 export const selectActiveDraft = (state: Pick<RouteStoreState, 'routeId' | 'drafts'>): RouteDetail | null =>
@@ -187,6 +218,7 @@ function commitEdit(
   set: SetState,
   get: GetState
 ): void {
+  if (isSaveLocked()) return;
   const history = pushSnapshot(before, get().past);
   set({
     ...history,
@@ -231,6 +263,7 @@ export const useRouteStore = create<RouteStoreState>()(
       routeId: null,
       published: null,
       drafts: {},
+      saved: {},
       isLoading: false,
       isRouting: false,
       error: null,
@@ -262,14 +295,20 @@ export const useRouteStore = create<RouteStoreState>()(
           if (get().routeId !== routeId) return;
 
           // Yerel taslak varsa o, yoksa sunucunun döndürdüğü taslak kullanılır
-          const drafts = get().drafts;
+          const { drafts, saved } = get();
           const localDraft = drafts[routeId] ?? null;
           const activeDraft = normalizeDetail(localDraft ?? data.draft ?? null);
+
+          // Sunucudaki taslak kayıtlı hal olarak tutulur; yoksa bu hat için kayıtlı taslak da yoktur
+          const nextSaved = { ...saved };
+          if (data.draft) nextSaved[routeId] = toSavedRoute(data.draft);
+          else delete nextSaved[routeId];
 
           set({
             published: normalizeDetail(data.published),
             drafts:
               activeDraft && activeDraft !== localDraft ? { ...drafts, [routeId]: activeDraft } : drafts,
+            saved: nextSaved,
             isLoading: false,
           });
 
@@ -411,7 +450,7 @@ export const useRouteStore = create<RouteStoreState>()(
       undoIntent: () => {
         const { routeId, past, future } = get();
         const draft = selectActiveDraft(get());
-        if (routeId === null || !draft || past.length === 0) return;
+        if (routeId === null || !draft || past.length === 0 || isSaveLocked()) return;
 
         const previousSnapshot = past[past.length - 1];
         restoreSnapshot(
@@ -426,7 +465,7 @@ export const useRouteStore = create<RouteStoreState>()(
       redoIntent: () => {
         const { routeId, past, future } = get();
         const draft = selectActiveDraft(get());
-        if (routeId === null || !draft || future.length === 0) return;
+        if (routeId === null || !draft || future.length === 0 || isSaveLocked()) return;
 
         const nextSnapshot = future[0];
         restoreSnapshot(
@@ -439,6 +478,7 @@ export const useRouteStore = create<RouteStoreState>()(
       },
 
       resetToPublishedIntent: () => {
+        if (isSaveLocked()) return;
         routingPipeline.cancel();
         // Yalnızca seçili hattın taslağı silinir (hem hafızadan hem yerel diskten); diğer hatlar korunur
         const { routeId, drafts } = get();
@@ -488,6 +528,7 @@ export const useRouteStore = create<RouteStoreState>()(
         drafts: Object.fromEntries(
           Object.entries(state.drafts).map(([routeId, detail]) => [routeId, { ...detail, navigation: null }])
         ),
+        saved: state.saved,
       }),
       // Eski biçim { routeId, draft } -> { routeId, drafts: { [routeId]: draft } }
       migrate: (persistedState, version) => {
@@ -500,7 +541,7 @@ export const useRouteStore = create<RouteStoreState>()(
           const routeId = persisted.routeId ?? null;
           const drafts: Record<string, RouteDetail> =
             routeId !== null && persisted.draft ? { [routeId]: persisted.draft } : {};
-          return { routeId, drafts } satisfies PersistedRouteState;
+          return { routeId, drafts, saved: {} } satisfies PersistedRouteState;
         }
         return persisted as PersistedRouteState;
       },
@@ -511,6 +552,7 @@ export const useRouteStore = create<RouteStoreState>()(
           ...currentState,
           routeId: persisted.routeId ?? currentState.routeId,
           drafts: normalizeDrafts(persisted.drafts ?? currentState.drafts),
+          saved: persisted.saved ?? currentState.saved,
         };
       },
       // Sayfa yenilenince seçili hat yeniden yüklenir: published gelir, navigation'ı olmayan taslak yeniden hesaplanır
@@ -531,6 +573,36 @@ export const selectActiveRoute = (state: RouteStoreState): RouteDetail | null =>
 
 export const selectIsRouteDirty = (state: RouteStoreState): boolean =>
   selectActiveDraft(state) !== null;
+
+let unsavedCache: {
+  drafts: RouteStoreState['drafts'];
+  saved: RouteStoreState['saved'];
+  result: string[];
+} | null = null;
+
+/**
+ * Sunucuya kaydedilmemiş hatlar: taslağı kayıtlı halinden farklı (ya da hiç kaydedilmemiş) olanlar ve
+ * kayıtlı taslağı olup yerelde taslağı kalmayanlar (yayındakine dönülmüş; kayıtta sunucudan silinir).
+ */
+export function selectUnsavedRouteIds(state: Pick<RouteStoreState, 'drafts' | 'saved'>): string[] {
+  const { drafts, saved } = state;
+  if (unsavedCache?.drafts === drafts && unsavedCache.saved === saved) return unsavedCache.result;
+
+  const result: string[] = [];
+  for (const [routeId, draft] of Object.entries(drafts)) {
+    const savedRoute = saved[routeId];
+    if (!savedRoute || !isSameSavedRoute(draft, savedRoute)) result.push(routeId);
+  }
+  for (const routeId of Object.keys(saved)) {
+    if (!drafts[routeId]) result.push(routeId);
+  }
+
+  unsavedCache = { drafts, saved, result };
+  return result;
+}
+
+export const selectHasUnsavedRoutes = (state: RouteStoreState): boolean =>
+  selectUnsavedRouteIds(state).length > 0;
 
 export const selectIsRouting = (state: RouteStoreState): boolean =>
   state.isRouting;

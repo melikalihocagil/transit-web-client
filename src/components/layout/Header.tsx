@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
-import { Layers, User, AlertTriangle, Undo2, Redo2, Save, RotateCcw, Loader2 } from 'lucide-react';
+import React from 'react';
+import { Layers, User, Undo2, Redo2, Save, RotateCcw, Loader2 } from 'lucide-react';
 import {
   useStopDraftStore,
-  selectAffectedRouteIds,
-  selectCanSaveStops,
+  useRouteStore,
+  saveAll,
+  selectHasUnsavedStops,
+  selectHasUnsavedRoutes,
   selectCanUndoStops,
   selectCanRedoStops,
   selectStopChangeCount,
 } from '../../store';
-import { useRoutesQuery } from '../../api';
 import { AffectedRoutesDropdown } from './AffectedRoutesDropdown';
 
 interface HeaderProps {
@@ -18,10 +19,11 @@ interface HeaderProps {
 const iconButton =
   'p-1 rounded text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer';
 
-/** Durak taslağı araç çubuğu: değişiklik sayısı, geri al / ileri al, sıfırla, kaydet. */
+/** Durak taslağı araç çubuğu: değişiklik sayısı, geri al / ileri al, sıfırla; durak ve hat taslaklarını kaydet. */
 const StopDraftToolbar: React.FC = () => {
   const changeCount = useStopDraftStore(selectStopChangeCount);
-  const canSave = useStopDraftStore(selectCanSaveStops);
+  const hasUnsavedStops = useStopDraftStore(selectHasUnsavedStops);
+  const hasUnsavedRoutes = useRouteStore(selectHasUnsavedRoutes);
   const canUndo = useStopDraftStore(selectCanUndoStops);
   const canRedo = useStopDraftStore(selectCanRedoStops);
   const status = useStopDraftStore((state) => state.status);
@@ -29,9 +31,9 @@ const StopDraftToolbar: React.FC = () => {
   const undo = useStopDraftStore((state) => state.undo);
   const redo = useStopDraftStore((state) => state.redo);
   const resetDraft = useStopDraftStore((state) => state.resetDraft);
-  const saveStops = useStopDraftStore((state) => state.saveStops);
 
   const isSaving = status === 'saving';
+  const canSave = status === 'idle' && (hasUnsavedStops || hasUnsavedRoutes);
 
   return (
     <div className="flex items-center gap-2 text-xs">
@@ -71,27 +73,21 @@ const StopDraftToolbar: React.FC = () => {
 
       <button
         type="button"
-        onClick={() => void saveStops()}
+        onClick={() => void saveAll()}
         disabled={!canSave}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-30 disabled:hover:bg-blue-600 disabled:cursor-not-allowed transition-colors cursor-pointer"
-        title="Durak taslağını sunucuya kaydet"
+        title="Durak ve hat taslaklarını sunucuya kaydet"
       >
         {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
         Kaydet
       </button>
+
+      <AffectedRoutesDropdown />
     </div>
   );
 };
 
 export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => {
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-
-  const affectedRouteIds = useStopDraftStore(selectAffectedRouteIds);
-  const clearAffectedRoutes = useStopDraftStore((state) => state.clearAffectedRoutes);
-  const { data: routes = [] } = useRoutesQuery();
-
-  const hasAffectedRoutes = affectedRouteIds.length > 0;
-
   return (
     <header className="h-12 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-20 shrink-0">
       <div className="flex items-center gap-3">
@@ -109,18 +105,6 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
       <div className="flex items-center gap-3">
         <StopDraftToolbar />
 
-        {hasAffectedRoutes && (
-          <button
-            type="button"
-            onClick={() => setIsDropdownOpen((prev) => !prev)}
-            className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs text-amber-300 transition-all cursor-pointer shadow-xs shadow-amber-500/10 group"
-            title="Durak taşıma nedeniyle geometrisi etkilenen hatları incele"
-          >
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-            <span className="font-semibold">Etkilenen Hatlar ({affectedRouteIds.length})</span>
-          </button>
-        )}
-
         <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
           <User className="w-3.5 h-3.5 text-blue-400" />
           <span className="text-slate-400">Operatör:</span>
@@ -128,16 +112,6 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
         </div>
       </div>
 
-      <AffectedRoutesDropdown
-        isOpen={isDropdownOpen}
-        onClose={() => setIsDropdownOpen(false)}
-        affectedRouteIds={affectedRouteIds}
-        routes={routes}
-        onClear={() => {
-          clearAffectedRoutes();
-          setIsDropdownOpen(false);
-        }}
-      />
     </header>
   );
 };

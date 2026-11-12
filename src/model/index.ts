@@ -45,3 +45,6 @@ export type { RouteDetail } from './route-detail';
 // 8. Çift Katmanlı Çalışma Paketleri (Dual-Layer Workspace State)
 export type { RouteData } from './route-data';
 export type { StopsData } from './stops-data';
+
+// 9. Etkilenen Hat (durak değişikliğinin geometrisini değiştirdiği hat)
+export type { AffectedRoute } from './affected-route';
