@@ -1,0 +1,271 @@
+import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { stopApi } from '../api/stopApi';
+import { isDeletedStop, isSameStopData, type DraftStop, type Stop } from '../model';
+
+/**
+ * Durak verisi iki katmandan oluşur:
+ *
+ * - published: Sunucunun döndürdüğü veri. İstemcide asla değiştirilmez, persist edilmez.
+ * - draft:     SSoT. Sadece published'dan farklı olan duraklar (farklı / yeni / silinmiş).
+ *              Persist edilir; sunucudaki `draft.stops` tablosuyla aynı şekildedir.
+ *
+ * Ekranda görünen durak: draft[id] ?? published[id]
+ */
+
+export type StopRecord = Record<string, Stop>;
+export type StopDraft = Record<string, DraftStop>;
+
+const HISTORY_LIMIT = 50;
+const STORAGE_KEY = 'transit-stops';
+const LEGACY_STORAGE_KEY = 'transit-stops-staging';
+
+export interface StopDraftState {
+  published: StopRecord;
+  draft: StopDraft;
+  past: StopDraft[];
+  future: StopDraft[];
+  status: 'idle' | 'loading' | 'saving';
+  error: string | null;
+  affectedRouteIds: string[];
+
+  loadStops: () => Promise<void>;
+  moveStop: (stopId: string, lat: number, lon: number) => void;
+  resetDraft: () => void;
+  undo: () => void;
+  redo: () => void;
+  saveStops: () => Promise<void>;
+  clearAffectedRoutes: () => void;
+}
+
+function toRecord(stops: Stop[] | null | undefined): StopRecord {
+  const record: StopRecord = {};
+  for (const stop of stops ?? []) {
+    record[stop.stopId] = stop;
+  }
+  return record;
+}
+
+/**
+ * Draft'tan anlamsız kayıtları atar:
+ * - published ile birebir aynı olan duraklar,
+ * - published'da hiç olmayan bir durağın silme işareti.
+ */
+export function normalizeDraft(draft: StopDraft, published: StopRecord): StopDraft {
+  const result: StopDraft = {};
+  for (const [stopId, entry] of Object.entries(draft)) {
+    const original = published[stopId];
+    if (isDeletedStop(entry)) {
+      if (original) result[stopId] = entry;
+    } else if (!original || !isSameStopData(original, entry)) {
+      result[stopId] = entry;
+    }
+  }
+  return result;
+}
+
+function isSameDraft(a: StopDraft, b: StopDraft): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+// Eski store'un 738 durağın tam kopyasını tuttuğu anahtar; yeni modelde kullanılmıyor.
+try {
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+} catch {
+  // localStorage erişilemiyorsa yapılacak bir şey yok
+}
+
+export const useStopDraftStore = create<StopDraftState>()(
+  persist(
+    (set, get) => {
+      /** Tüm draft değişiklikleri buradan geçer: geçmişe ekler, normalize edip yazar. */
+      const commit = (nextDraft: StopDraft) => {
+        const { draft, past, published, status } = get();
+        // Kayıt sürerken draft kilitli: kayıt sonunda sunucu verisi yazılacağı için değişiklik kaybolurdu
+        if (status === 'saving') return;
+        const normalized = normalizeDraft(nextDraft, published);
+        if (isSameDraft(draft, normalized)) return;
+        set({
+          draft: normalized,
+          past: [...past, draft].slice(-HISTORY_LIMIT),
+          future: [],
+          error: null,
+        });
+      };
+
+      return {
+        published: {},
+        draft: {},
+        past: [],
+        future: [],
+        status: 'idle',
+        error: null,
+        affectedRouteIds: [],
+
+        loadStops: async () => {
+          set({ status: 'loading', error: null });
+          try {
+            const data = await stopApi.fetchStops();
+            const published = toRecord(data.published);
+            const { draft, past } = get();
+            const hasLocalWork = Object.keys(draft).length > 0 || past.length > 0;
+
+            if (hasLocalWork) {
+              // Kaydedilmemiş yerel iş korunur; published'a geçmiş kayıtlar normalize ile düşer.
+              set({ published, draft: normalizeDraft(draft, published), status: 'idle' });
+            } else {
+              set({
+                published,
+                draft: normalizeDraft(toRecord(data.draft), published),
+                past: [],
+                future: [],
+                status: 'idle',
+              });
+            }
+          } catch (err) {
+            set({ status: 'idle', error: errorMessage(err, 'Duraklar yüklenemedi') });
+          }
+        },
+
+        moveStop: (stopId, lat, lon) => {
+          const { draft, published } = get();
+          const entry = draft[stopId];
+          const current = entry && !isDeletedStop(entry) ? entry : published[stopId];
+          if (!current) return;
+          commit({ ...draft, [stopId]: { ...current, lat, lon } });
+        },
+
+        resetDraft: () => commit({}),
+
+        undo: () => {
+          const { draft, past, future, published, status } = get();
+          if (past.length === 0 || status === 'saving') return;
+          set({
+            draft: normalizeDraft(past[past.length - 1], published),
+            past: past.slice(0, -1),
+            future: [draft, ...future].slice(0, HISTORY_LIMIT),
+          });
+        },
+
+        redo: () => {
+          const { draft, past, future, published, status } = get();
+          if (future.length === 0 || status === 'saving') return;
+          set({
+            draft: normalizeDraft(future[0], published),
+            past: [...past, draft].slice(-HISTORY_LIMIT),
+            future: future.slice(1),
+          });
+        },
+
+        saveStops: async () => {
+          if (get().status !== 'idle') return;
+          const draft = get().draft;
+          set({ status: 'saving', error: null });
+
+          const entries = Object.values(draft);
+          // Silme işaretleri backend'e gönderilemez (lat/lon primitive double); yerelde kalır.
+          const toSave = entries.filter((s): s is Stop => !isDeletedStop(s));
+          const tombstones = entries.filter(isDeletedStop);
+          const keepIds = new Set(toSave.map((s) => s.stopId));
+
+          try {
+            // 1-2. Sunucuda olup draft'ta artık olmayan kayıtları tek tek sil
+            const server = await stopApi.fetchStops();
+            const toDelete = (server.draft ?? [])
+              .map((s) => s.stopId)
+              .filter((id) => !keepIds.has(id));
+            await Promise.all(toDelete.map((id) => stopApi.deleteStopDraft(id)));
+
+            // 3. Draft'ın geri kalanını tek istekte yaz
+            if (toSave.length > 0) {
+              await stopApi.saveStops(toSave);
+            }
+
+            // 4. Sunucunun güncel halini al, geçmişi temizle
+            const fresh = await stopApi.fetchStops();
+            const published = toRecord(fresh.published);
+            const nextDraft: StopDraft = { ...toRecord(fresh.draft) };
+            for (const tombstone of tombstones) {
+              nextDraft[tombstone.stopId] = tombstone;
+            }
+            set({
+              published,
+              draft: normalizeDraft(nextDraft, published),
+              past: [],
+              future: [],
+              status: 'idle',
+            });
+          } catch (err) {
+            set({ status: 'idle', error: errorMessage(err, 'Duraklar kaydedilemedi') });
+            return;
+          }
+
+          // 5. Etkilenen hatlar: backend hesabı kayıtlı taslağa göre yaptığı için kayıttan sonra
+          try {
+            const results = await Promise.all(toSave.map((stop) => stopApi.moveStop(stop)));
+            set({ affectedRouteIds: [...new Set(results.flat())] });
+          } catch (err) {
+            set({ error: errorMessage(err, 'Etkilenen hatlar hesaplanamadı') });
+          }
+        },
+
+        clearAffectedRoutes: () => set({ affectedRouteIds: [] }),
+      };
+    },
+    {
+      name: STORAGE_KEY,
+      version: 1,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        draft: state.draft,
+        past: state.past,
+        future: state.future,
+        affectedRouteIds: state.affectedRouteIds,
+      }),
+    }
+  )
+);
+
+// ---- Seçiciler ----
+
+let effectiveCache: { published: StopRecord; draft: StopDraft; result: Stop[] } | null = null;
+
+/** Ekranda görünen duraklar: draft ?? published; silinenler hariç, yeni duraklar dahil. */
+export function selectEffectiveStops(state: StopDraftState): Stop[] {
+  const { published, draft } = state;
+  if (effectiveCache?.published === published && effectiveCache.draft === draft) {
+    return effectiveCache.result;
+  }
+
+  const result: Stop[] = [];
+  for (const [stopId, original] of Object.entries(published)) {
+    const entry = draft[stopId];
+    if (!entry) result.push(original);
+    else if (!isDeletedStop(entry)) result.push(entry);
+  }
+  for (const [stopId, entry] of Object.entries(draft)) {
+    if (!published[stopId] && !isDeletedStop(entry)) result.push(entry);
+  }
+
+  effectiveCache = { published, draft, result };
+  return result;
+}
+
+export const selectCanSaveStops = (state: StopDraftState): boolean =>
+  state.past.length > 0 && state.status === 'idle';
+
+export const selectCanUndoStops = (state: StopDraftState): boolean => state.past.length > 0;
+
+export const selectCanRedoStops = (state: StopDraftState): boolean => state.future.length > 0;
+
+export const selectStopChangeCount = (state: StopDraftState): number =>
+  Object.keys(state.draft).length;
+
+export const selectAffectedRouteIds = (state: StopDraftState): string[] =>
+  state.affectedRouteIds;

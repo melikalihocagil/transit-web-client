@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { useStopStore } from '../../store';
+import { useStopDraftStore, selectEffectiveStops } from '../../store';
 import { MAP_PANES } from './mapPanes';
 import {
   CITY_STOP_CANVAS_STYLE,
@@ -9,175 +9,251 @@ import {
   PUBLISHED_GHOST_STOP_STYLE,
 } from './mapStyles';
 import { createCityStopIcon } from './markerFactory';
-import { isTerminalStop } from '../../model';
+import { isTerminalStop, type Stop } from '../../model';
+
+type StopStyleKey = 'normal' | 'terminal' | 'moved';
+
+const STYLES: Record<StopStyleKey, L.CircleMarkerOptions> = {
+  normal: CITY_STOP_CANVAS_STYLE,
+  terminal: TERMINAL_STOP_CANVAS_STYLE,
+  moved: MOVED_STOP_CANVAS_STYLE,
+};
+
+interface StopMarkerOptions extends L.CircleMarkerOptions {
+  stopId: string;
+}
+
+interface MarkerEntry {
+  marker: L.CircleMarker;
+  stop: Stop;
+  styleKey: StopStyleKey;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function isMovedFromPublished(stop: Stop, published: Stop | undefined): boolean {
+  return published !== undefined && (published.lat !== stop.lat || published.lon !== stop.lon);
+}
+
+function stopIdOf(layer: L.Layer): string {
+  return (layer.options as StopMarkerOptions).stopId;
+}
 
 /**
- * Şehir genelindeki durak envanterini (738 durak) GPU destekli HTML5 Canvas üzerinde
- * 60 FPS akıcılıkla senkronize eden adaptör hook.
+ * Şehirdeki tüm durakları canvas üzerinde çizer.
  *
- * Performans İlkeleri:
- * 1. 738 durağın tamamı DOM nesnesi (L.divIcon) yerine Canvas üzerinde L.circleMarker olarak çizilir.
- * 2. Sıfır DOM yükü sayesinde harita kaydırma (pan) ve yakınlaştırma (zoom) esnasında layout thrashing yaşanmaz.
- * 3. Operatör bir durağı taşımak istediğinde durağa tıklar; sadece seçilen o tek durak için
- *    sürüklenebilir geçici bir tutamaç (DOM drag handle) aktif edilir ve bırakıldığında (dragend)
- *    store niyetini tetikleyerek kendini temizler.
+ * - Tek bir canvas renderer kullanılır; tüm durak marker'ları onu paylaşır.
+ * - Marker'lar stopId ile tutulur; değişiklikte sadece farklı olan duraklar güncellenir.
+ * - Tooltip ve click tek bir grup seviyesinde yönetilir (durak başına dinleyici yok).
+ * - Durağa tıklanınca o durak için tek bir sürüklenebilir tutamaç açılır; bırakınca store'a yazılır.
  */
 export function useStopsMapSync(map: L.Map | null): void {
-  const publishedStops = useStopStore((state) => state.publishedStops);
-  const draftStops = useStopStore((state) => state.draftStops);
-  const loadStopsIntent = useStopStore((state) => state.loadStopsIntent);
-  const moveStopIntent = useStopStore((state) => state.moveStopIntent);
+  const published = useStopDraftStore((state) => state.published);
+  const effectiveStops = useStopDraftStore(selectEffectiveStops);
 
-  const cityStopsLayerRef = useRef<L.LayerGroup | null>(null);
-  const ghostStopsLayerRef = useRef<L.LayerGroup | null>(null);
-  const activeDragMarkerRef = useRef<L.Marker | null>(null);
+  const stopsGroupRef = useRef<L.FeatureGroup | null>(null);
+  const ghostsGroupRef = useRef<L.FeatureGroup | null>(null);
+  const stopsRendererRef = useRef<L.Canvas | null>(null);
+  const ghostsRendererRef = useRef<L.Canvas | null>(null);
+  const markersRef = useRef(new Map<string, MarkerEntry>());
+  const ghostsRef = useRef(new Map<string, L.CircleMarker>());
+  const dragHandleRef = useRef<L.Marker | null>(null);
 
-  // 1. İlk yüklemede duraklar boşsa sunucudan çek (loadStopsIntent)
+  // 1. Duraklar henüz yüklenmediyse sunucudan çek
   useEffect(() => {
-    if (publishedStops.length === 0) {
-      void loadStopsIntent();
+    if (Object.keys(useStopDraftStore.getState().published).length === 0) {
+      void useStopDraftStore.getState().loadStops();
     }
-  }, [publishedStops.length, loadStopsIntent]);
+  }, []);
 
-  // 2. Harita katman gruplarını bağla, harita tıklama temizliğini kur ve unmount'ta temizle
+  // 2. Katmanlar, renderer'lar ve olay dinleyicileri: harita başına bir kez
   useEffect(() => {
     if (!map) return;
 
-    const cityGroup = L.layerGroup([], { pane: MAP_PANES.CITY_STOPS }).addTo(map);
-    const ghostGroup = L.layerGroup([], { pane: MAP_PANES.PUBLISHED_STOPS }).addTo(map);
+    const markers = markersRef.current;
+    const ghosts = ghostsRef.current;
 
-    cityStopsLayerRef.current = cityGroup;
-    ghostStopsLayerRef.current = ghostGroup;
+    const stopsRenderer = L.canvas({ pane: MAP_PANES.CITY_STOPS });
+    const ghostsRenderer = L.canvas({ pane: MAP_PANES.PUBLISHED_STOPS });
+    const stopsGroup = L.featureGroup().addTo(map);
+    const ghostsGroup = L.featureGroup().addTo(map);
 
-    // Harita zeminine tıklanınca varsa aktif taşıma tutamacını kaldır
-    const handleMapClick = () => {
-      if (activeDragMarkerRef.current) {
-        activeDragMarkerRef.current.remove();
-        activeDragMarkerRef.current = null;
-      }
+    stopsRendererRef.current = stopsRenderer;
+    ghostsRendererRef.current = ghostsRenderer;
+    stopsGroupRef.current = stopsGroup;
+    ghostsGroupRef.current = ghostsGroup;
+
+    const removeDragHandle = () => {
+      dragHandleRef.current?.remove();
+      dragHandleRef.current = null;
     };
-    map.on('click', handleMapClick);
+
+    // Tek paylaşımlı tooltip: içerik, üzerine gelinen marker'ın durağından üretilir
+    stopsGroup.bindTooltip(
+      (layer) => {
+        const entry = markers.get(stopIdOf(layer as L.Layer));
+        if (!entry) return '';
+        const { stop, styleKey } = entry;
+        return `<div style="font-family: sans-serif; font-size: 11px;">
+          <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
+          ${styleKey === 'moved' ? '<span style="color: #f59e0b; font-weight: 600;"> (Taşındı)</span>' : ''}
+          <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">Taşımak için tıklayın</div>
+        </div>`;
+      },
+      { direction: 'top', offset: [0, -6] }
+    );
+
+    ghostsGroup.bindTooltip(
+      (layer) => {
+        const original = useStopDraftStore.getState().published[stopIdOf(layer as L.Layer)];
+        if (!original) return '';
+        return `<div style="font-family: sans-serif; font-size: 11px;">
+          <span style="color: #94a3b8; font-weight: 600;">Orijinal:</span>
+          <strong>${escapeHtml(original.stopId)}</strong> - ${escapeHtml(original.stopName)}
+        </div>`;
+      },
+      { direction: 'top', offset: [0, -6] }
+    );
+
+    // Tek click dinleyicisi: tıklanan durak için sürüklenebilir tutamaç aç
+    const handleStopClick = (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(e);
+      const entry = markers.get(stopIdOf(e.propagatedFrom as L.Layer));
+      if (!entry) return;
+      removeDragHandle();
+
+      const { stop } = entry;
+      const handle = L.marker([stop.lat, stop.lon], {
+        icon: createCityStopIcon(isTerminalStop(stop), true),
+        pane: MAP_PANES.DRAFT_STOPS,
+        draggable: true,
+      }).addTo(map);
+
+      handle
+        .bindTooltip(
+          `<div style="font-family: sans-serif; font-size: 11px;">
+            <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
+            <div style="color: #22c55e; font-size: 10px; font-weight: 600;">Yeni konuma sürükleyin</div>
+          </div>`,
+          { direction: 'top', offset: [0, -10] }
+        )
+        .openTooltip();
+
+      handle.on('dragend', () => {
+        const { lat, lng } = handle.getLatLng();
+        removeDragHandle();
+        useStopDraftStore.getState().moveStop(stop.stopId, lat, lng);
+      });
+
+      dragHandleRef.current = handle;
+    };
+
+    stopsGroup.on('click', handleStopClick);
+    map.on('click', removeDragHandle);
 
     return () => {
-      map.off('click', handleMapClick);
-      if (activeDragMarkerRef.current) {
-        activeDragMarkerRef.current.remove();
-        activeDragMarkerRef.current = null;
-      }
-      cityGroup.remove();
-      ghostGroup.remove();
-      cityStopsLayerRef.current = null;
-      ghostStopsLayerRef.current = null;
+      map.off('click', removeDragHandle);
+      removeDragHandle();
+      stopsGroup.remove();
+      ghostsGroup.remove();
+      stopsRenderer.remove();
+      ghostsRenderer.remove();
+      markers.clear();
+      ghosts.clear();
+      stopsGroupRef.current = null;
+      ghostsGroupRef.current = null;
+      stopsRendererRef.current = null;
+      ghostsRendererRef.current = null;
     };
   }, [map]);
 
-  // 3. Durak listesi her değiştiğinde Canvas katmanlarını güncelle (UDF Reaktivitesi)
+  // 3. Artımlı senkronizasyon: sadece değişen marker'lar güncellenir
   useEffect(() => {
-    const cityGroup = cityStopsLayerRef.current;
-    const ghostGroup = ghostStopsLayerRef.current;
-    if (!map || !cityGroup || !ghostGroup) return;
+    const stopsGroup = stopsGroupRef.current;
+    const ghostsGroup = ghostsGroupRef.current;
+    const stopsRenderer = stopsRendererRef.current;
+    const ghostsRenderer = ghostsRendererRef.current;
+    if (!map || !stopsGroup || !ghostsGroup || !stopsRenderer || !ghostsRenderer) return;
 
-    cityGroup.clearLayers();
-    ghostGroup.clearLayers();
+    const markers = markersRef.current;
+    const ghosts = ghostsRef.current;
+    const visibleIds = new Set<string>();
+    const movedIds = new Set<string>();
 
-    // Varsa önceki taşıma tutamacını da sıfırla
-    if (activeDragMarkerRef.current) {
-      activeDragMarkerRef.current.remove();
-      activeDragMarkerRef.current = null;
-    }
+    for (const stop of effectiveStops) {
+      visibleIds.add(stop.stopId);
+      const original = published[stop.stopId];
+      const moved = isMovedFromPublished(stop, original);
+      if (moved) movedIds.add(stop.stopId);
+      const styleKey: StopStyleKey = moved ? 'moved' : isTerminalStop(stop) ? 'terminal' : 'normal';
 
-    // Özel katman düzlemleri için Canvas renderer'lar
-    const cityCanvasRenderer = L.canvas({ pane: MAP_PANES.CITY_STOPS });
-    const ghostCanvasRenderer = L.canvas({ pane: MAP_PANES.PUBLISHED_STOPS });
-
-    // Published durakları hızlı erişim için haritalayalım
-    const publishedMap = new Map(publishedStops.map((s) => [s.stopId, s]));
-
-    // Aktif durak listesi: Varsa draftStops, yoksa publishedStops
-    const activeStops = draftStops ?? publishedStops;
-
-    for (const stop of activeStops) {
-      const published = publishedMap.get(stop.stopId);
-      const isMoved = published !== undefined && (published.lat !== stop.lat || published.lon !== stop.lon);
-
-      // A) Eğer durak taşınmışsa, orijinal konumunda altta Canvas HAYALET pini bırak
-      if (isMoved && published) {
-        const ghostCircle = L.circleMarker([published.lat, published.lon], {
-          ...PUBLISHED_GHOST_STOP_STYLE,
-          renderer: ghostCanvasRenderer,
+      const entry = markers.get(stop.stopId);
+      if (!entry) {
+        const options: StopMarkerOptions = {
+          ...STYLES[styleKey],
+          renderer: stopsRenderer,
           interactive: true,
-        });
-
-        ghostCircle.bindTooltip(
-          `<div style="font-family: sans-serif; font-size: 11px;">
-            <span style="color: #94a3b8; font-weight: 600;">Orijinal:</span> <strong>${published.stopId}</strong> - ${published.stopName}
-          </div>`,
-          { direction: 'top', offset: [0, -6] }
-        );
-
-        ghostGroup.addLayer(ghostCircle);
+          stopId: stop.stopId,
+        };
+        const marker = L.circleMarker([stop.lat, stop.lon], options);
+        stopsGroup.addLayer(marker);
+        markers.set(stop.stopId, { marker, stop, styleKey });
+        continue;
       }
 
-      // B) Aktif durak pini (GPU Destekli Canvas CircleMarker)
-      const isTerminal = isTerminalStop(stop);
-      const baseStyle = isMoved
-        ? MOVED_STOP_CANVAS_STYLE
-        : isTerminal
-          ? TERMINAL_STOP_CANVAS_STYLE
-          : CITY_STOP_CANVAS_STYLE;
-
-      const circle = L.circleMarker([stop.lat, stop.lon], {
-        ...baseStyle,
-        renderer: cityCanvasRenderer,
-        interactive: true,
-      });
-
-      circle.bindTooltip(
-        `<div style="font-family: sans-serif; font-size: 11px;">
-          <strong style="color: #3b82f6;">${stop.stopId}</strong> - ${stop.stopName}
-          ${isMoved ? '<span style="color: #f59e0b; font-weight: 600;"> (Taşındı)</span>' : ''}
-          <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">Taşımak için tıklayın</div>
-        </div>`,
-        { direction: 'top', offset: [0, -6] }
-      );
-
-      // Durağa tıklandığında: SADECE bu durak için tek bir sürüklenebilir DOM pini aç (On-Demand Drag Handle)
-      circle.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-
-        if (activeDragMarkerRef.current) {
-          activeDragMarkerRef.current.remove();
-          activeDragMarkerRef.current = null;
-        }
-
-        const dragMarker = L.marker([stop.lat, stop.lon], {
-          icon: createCityStopIcon(isTerminal, true),
-          pane: MAP_PANES.DRAFT_STOPS,
-          draggable: true,
-        }).addTo(map);
-
-        dragMarker
-          .bindTooltip(
-            `<div style="font-family: sans-serif; font-size: 11px;">
-              <strong style="color: #3b82f6;">${stop.stopId}</strong> - ${stop.stopName}
-              <div style="color: #22c55e; font-size: 10px; font-weight: 600;">Yeni konuma sürükleyin</div>
-            </div>`,
-            { direction: 'top', offset: [0, -10] }
-          )
-          .openTooltip();
-
-        dragMarker.on('dragend', (dragEvent) => {
-          const marker = dragEvent.target as L.Marker;
-          const { lat, lng } = marker.getLatLng();
-          dragMarker.remove();
-          activeDragMarkerRef.current = null;
-          void moveStopIntent(stop.stopId, lat, lng);
-        });
-
-        activeDragMarkerRef.current = dragMarker;
-      });
-
-      cityGroup.addLayer(circle);
+      if (entry.stop === stop) continue;
+      if (entry.stop.lat !== stop.lat || entry.stop.lon !== stop.lon) {
+        entry.marker.setLatLng([stop.lat, stop.lon]);
+      }
+      if (entry.styleKey !== styleKey) {
+        entry.marker.setStyle(STYLES[styleKey]);
+        entry.marker.setRadius(STYLES[styleKey].radius ?? 4);
+        entry.styleKey = styleKey;
+      }
+      entry.stop = stop;
     }
-  }, [map, publishedStops, draftStops, moveStopIntent]);
+
+    // Artık görünmeyen duraklar (silinen / kaldırılan)
+    for (const [stopId, entry] of markers) {
+      if (!visibleIds.has(stopId)) {
+        stopsGroup.removeLayer(entry.marker);
+        markers.delete(stopId);
+      }
+    }
+
+    // Hayalet pinler: sadece taşınan durakların orijinal konumunda
+    for (const stopId of movedIds) {
+      const original = published[stopId];
+      const ghost = ghosts.get(stopId);
+      if (!ghost) {
+        const options: StopMarkerOptions = {
+          ...PUBLISHED_GHOST_STOP_STYLE,
+          renderer: ghostsRenderer,
+          interactive: true,
+          stopId,
+        };
+        const marker = L.circleMarker([original.lat, original.lon], options);
+        ghostsGroup.addLayer(marker);
+        ghosts.set(stopId, marker);
+      } else {
+        ghost.setLatLng([original.lat, original.lon]);
+      }
+    }
+    for (const [stopId, ghost] of ghosts) {
+      if (!movedIds.has(stopId)) {
+        ghostsGroup.removeLayer(ghost);
+        ghosts.delete(stopId);
+      }
+    }
+
+    // Durak verisi değiştiyse açık tutamaç artık eski konumu gösteriyor olabilir
+    dragHandleRef.current?.remove();
+    dragHandleRef.current = null;
+  }, [map, published, effectiveStops]);
 }

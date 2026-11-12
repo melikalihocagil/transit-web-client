@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
-import { Layers, User, AlertTriangle } from 'lucide-react';
-import { useStopStore, selectAffectedRouteIds } from '../../store';
+import { Layers, User, AlertTriangle, Undo2, Redo2, Save, RotateCcw, Loader2 } from 'lucide-react';
+import {
+  useStopDraftStore,
+  selectAffectedRouteIds,
+  selectCanSaveStops,
+  selectCanUndoStops,
+  selectCanRedoStops,
+  selectStopChangeCount,
+} from '../../store';
 import { useRoutesQuery } from '../../api';
 import { AffectedRoutesDropdown } from './AffectedRoutesDropdown';
 
@@ -8,11 +15,79 @@ interface HeaderProps {
   operatorId?: string;
 }
 
+const iconButton =
+  'p-1 rounded text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer';
+
+/** Durak taslağı araç çubuğu: değişiklik sayısı, geri al / ileri al, sıfırla, kaydet. */
+const StopDraftToolbar: React.FC = () => {
+  const changeCount = useStopDraftStore(selectStopChangeCount);
+  const canSave = useStopDraftStore(selectCanSaveStops);
+  const canUndo = useStopDraftStore(selectCanUndoStops);
+  const canRedo = useStopDraftStore(selectCanRedoStops);
+  const status = useStopDraftStore((state) => state.status);
+  const error = useStopDraftStore((state) => state.error);
+  const undo = useStopDraftStore((state) => state.undo);
+  const redo = useStopDraftStore((state) => state.redo);
+  const resetDraft = useStopDraftStore((state) => state.resetDraft);
+  const saveStops = useStopDraftStore((state) => state.saveStops);
+
+  const isSaving = status === 'saving';
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      {error && (
+        <span className="text-rose-400 max-w-64 truncate" title={error}>
+          {error}
+        </span>
+      )}
+
+      <span className="text-slate-400">
+        {changeCount > 0 ? (
+          <>
+            <strong className="text-amber-300">{changeCount}</strong> durak değişikliği
+          </>
+        ) : (
+          'Durak değişikliği yok'
+        )}
+      </span>
+
+      <div className="flex items-center bg-slate-800/80 rounded border border-slate-700/60 p-0.5">
+        <button type="button" onClick={undo} disabled={!canUndo || isSaving} className={iconButton} title="Geri Al (Ctrl+Z)">
+          <Undo2 className="w-3.5 h-3.5" />
+        </button>
+        <button type="button" onClick={redo} disabled={!canRedo || isSaving} className={iconButton} title="İleri Al (Ctrl+Y / Ctrl+Shift+Z)">
+          <Redo2 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={resetDraft}
+          disabled={changeCount === 0 || isSaving}
+          className={iconButton}
+          title="Tüm durak değişikliklerini geri al (Ctrl+Z ile geri getirilebilir)"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void saveStops()}
+        disabled={!canSave}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-30 disabled:hover:bg-blue-600 disabled:cursor-not-allowed transition-colors cursor-pointer"
+        title="Durak taslağını sunucuya kaydet"
+      >
+        {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+        Kaydet
+      </button>
+    </div>
+  );
+};
+
 export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  const affectedRouteIds = useStopStore(selectAffectedRouteIds);
-  const clearAffectedRoutesIntent = useStopStore((state) => state.clearAffectedRoutesIntent);
+  const affectedRouteIds = useStopDraftStore(selectAffectedRouteIds);
+  const clearAffectedRoutes = useStopDraftStore((state) => state.clearAffectedRoutes);
   const { data: routes = [] } = useRoutesQuery();
 
   const hasAffectedRoutes = affectedRouteIds.length > 0;
@@ -31,8 +106,9 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
         </span>
       </div>
 
-      {/* Sağ Taraf: Etkilenen Hatlar Rozeti + Operatör Bilgisi */}
       <div className="flex items-center gap-3">
+        <StopDraftToolbar />
+
         {hasAffectedRoutes && (
           <button
             type="button"
@@ -40,10 +116,6 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
             className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs text-amber-300 transition-all cursor-pointer shadow-xs shadow-amber-500/10 group"
             title="Durak taşıma nedeniyle geometrisi etkilenen hatları incele"
           >
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-            </span>
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
             <span className="font-semibold">Etkilenen Hatlar ({affectedRouteIds.length})</span>
           </button>
@@ -56,14 +128,13 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
         </div>
       </div>
 
-      {/* Açılır Etkilenen Hatlar Paneli */}
       <AffectedRoutesDropdown
         isOpen={isDropdownOpen}
         onClose={() => setIsDropdownOpen(false)}
         affectedRouteIds={affectedRouteIds}
         routes={routes}
         onClear={() => {
-          clearAffectedRoutesIntent();
+          clearAffectedRoutes();
           setIsDropdownOpen(false);
         }}
       />

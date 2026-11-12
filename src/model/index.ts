@@ -3,8 +3,15 @@ export type { Coordinate } from './coordinate';
 export { isSameCoordinate, formatCoordinate } from './coordinate';
 
 // 2. Durak Varlığı (Stop)
-export type { Stop } from './stop';
-export { isTerminalStop, formatStopLabel, getStopCoordinate, isSameStop } from './stop';
+export type { Stop, DeletedStop, DraftStop } from './stop';
+export {
+  isTerminalStop,
+  formatStopLabel,
+  getStopCoordinate,
+  isSameStop,
+  isDeletedStop,
+  isSameStopData,
+} from './stop';
 
 // 3. Ara Kılavuz Noktası (Via)
 export type { Via } from './via';

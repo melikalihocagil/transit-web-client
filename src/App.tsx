@@ -3,10 +3,11 @@ import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
 import { RouteCatalogPanel } from './components/sidebar/RouteCatalogPanel';
 import { GisMapCanvas } from './components/map/GisMapCanvas';
-import { useRouteStore } from './store';
+import { useStopDraftStore } from './store';
 
 export const App: React.FC = () => {
-  // Global Klavye Kısayolları: Ctrl+Z (Undo) ve Ctrl+Y / Ctrl+Shift+Z (Redo)
+  // Global klavye kısayolları: Ctrl+Z (geri al), Ctrl+Y / Ctrl+Shift+Z (ileri al).
+  // Şimdilik durak taslağı geçmişine bağlı; hatlar aşamasında ortak geçmişe genişletilecek.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Bir input veya textarea içerisindeyken harita undo/redo'sunu çalıştırma
@@ -25,13 +26,13 @@ export const App: React.FC = () => {
         if (key === 'z') {
           e.preventDefault();
           if (e.shiftKey) {
-            useRouteStore.getState().redoIntent();
+            useStopDraftStore.getState().redo();
           } else {
-            useRouteStore.getState().undoIntent();
+            useStopDraftStore.getState().undo();
           }
         } else if (key === 'y') {
           e.preventDefault();
-          useRouteStore.getState().redoIntent();
+          useStopDraftStore.getState().redo();
         }
       }
     };

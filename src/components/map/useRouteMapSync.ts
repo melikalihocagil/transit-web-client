@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { useRouteStore, useStopStore, selectActiveStops } from '../../store';
+import { useRouteStore, useStopDraftStore, selectEffectiveStops } from '../../store';
 import { MAP_PANES } from './mapPanes';
 import { PUBLISHED_LINE_STYLE, DRAFT_LINE_STYLE } from './mapStyles';
 import {
@@ -288,7 +288,7 @@ export function useRouteMapSync(map: L.Map | null): void {
           const dropPoint = map.latLngToLayerPoint(dropLatLng);
 
           // Şehir duraklarına 20 piksel mıknatıs kilitleme kontrolü
-          const allCityStops = selectActiveStops(useStopStore.getState());
+          const allCityStops = selectEffectiveStops(useStopDraftStore.getState());
           let snappedStop: Stop | null = null;
           let minPixelDist = 20;
 
@@ -474,7 +474,7 @@ export function useRouteMapSync(map: L.Map | null): void {
         const dropPoint = map.latLngToLayerPoint(dropLatLng);
 
         // Şehirdeki tüm duraklar arasından 20 piksel yakında olan var mı kontrol et
-        const allCityStops = selectActiveStops(useStopStore.getState());
+        const allCityStops = selectEffectiveStops(useStopDraftStore.getState());
         let snappedStop: Stop | null = null;
         let minPixelDist = 20; // 20 piksel mıknatıs eşiği
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Loader2, AlertCircle, CheckCircle2, GitBranch, MapPin, AlertTriangle } from 'lucide-react';
-import { useRouteStore, useStopStore, selectIsRouteDirty, selectAffectedRouteIds } from '../../store';
+import { useRouteStore, useStopDraftStore, selectIsRouteDirty, selectAffectedRouteIds } from '../../store';
 
 interface StatusBarProps {
   statusText?: string;
@@ -17,7 +17,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   const routeId = useRouteStore((state) => state.routeId);
   const isDirty = useRouteStore(selectIsRouteDirty);
   const activeRoute = useRouteStore((state) => state.draft ?? state.published);
-  const affectedRouteIds = useStopStore(selectAffectedRouteIds);
+  const affectedRouteIds = useStopDraftStore(selectAffectedRouteIds);
 
   // Durum Metni ve Göstergesinin Dinamik Belirlenmesi
   const renderStatus = () => {

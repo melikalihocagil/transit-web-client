@@ -9,11 +9,17 @@ export {
 } from './routeStore';
 
 export {
-  useStopStore,
-  selectActiveStops,
-  selectIsStopsDirty,
+  useStopDraftStore,
+  normalizeDraft,
+  selectEffectiveStops,
+  selectCanSaveStops,
+  selectCanUndoStops,
+  selectCanRedoStops,
+  selectStopChangeCount,
   selectAffectedRouteIds,
-  type StopStoreState,
-} from './stopStore';
+  type StopDraftState,
+  type StopDraft,
+  type StopRecord,
+} from './stopDraftStore';
 
 export { routingPipeline } from './routingPipeline';

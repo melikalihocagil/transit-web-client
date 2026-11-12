@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Route as RouteIcon, Loader2, AlertTriangle } from 'lucide-react';
-import { useRouteStore, useStopStore, selectIsRouteDirty, selectAffectedRouteIds } from '../../store';
+import { useRouteStore, useStopDraftStore, selectIsRouteDirty, selectAffectedRouteIds } from '../../store';
 import { useRoutesQuery } from '../../api';
 import { RouteSearchBar } from './catalog/RouteSearchBar';
 import { RouteCatalogList } from './catalog/RouteCatalogList';
@@ -25,7 +25,7 @@ export const RouteCatalogPanel: React.FC = () => {
   const isRouting = useRouteStore((state) => state.isRouting);
   const isLoadingRoute = useRouteStore((state) => state.isLoading);
   const isDirty = useRouteStore(selectIsRouteDirty);
-  const affectedRouteIds = useStopStore(selectAffectedRouteIds);
+  const affectedRouteIds = useStopDraftStore(selectAffectedRouteIds);
 
   // UDF Niyetleri (Actions)
   const selectRouteIntent = useRouteStore((state) => state.selectRouteIntent);
