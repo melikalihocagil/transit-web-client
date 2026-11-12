@@ -9,7 +9,7 @@ import {
   PUBLISHED_GHOST_STOP_STYLE,
 } from './mapStyles';
 import { createCityStopIcon } from './markerFactory';
-import { isTerminalStop, type Stop } from '../../model';
+import { isDeletedStop, isTerminalStop, type Stop } from '../../model';
 
 type StopStyleKey = 'normal' | 'terminal' | 'moved';
 
@@ -52,9 +52,12 @@ function stopIdOf(layer: L.Layer): string {
  * - Marker'lar stopId ile tutulur; değişiklikte sadece farklı olan duraklar güncellenir.
  * - Tooltip ve click tek bir grup seviyesinde yönetilir (durak başına dinleyici yok).
  * - Durağa tıklanınca o durak için tek bir sürüklenebilir tutamaç açılır; bırakınca store'a yazılır.
+ * - Draft'ta taşınan ya da silinen published duraklar için orijinal konumda etkileşimsiz
+ *   hayalet halka çizilir (ayrı canvas, tıklamaya kapalı düzlemde).
  */
 export function useStopsMapSync(map: L.Map | null): void {
   const published = useStopDraftStore((state) => state.published);
+  const draft = useStopDraftStore((state) => state.draft);
   const effectiveStops = useStopDraftStore(selectEffectiveStops);
 
   const stopsGroupRef = useRef<L.FeatureGroup | null>(null);
@@ -104,18 +107,6 @@ export function useStopsMapSync(map: L.Map | null): void {
           <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
           ${styleKey === 'moved' ? '<span style="color: #f59e0b; font-weight: 600;"> (Taşındı)</span>' : ''}
           <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">Taşımak için tıklayın</div>
-        </div>`;
-      },
-      { direction: 'top', offset: [0, -6] }
-    );
-
-    ghostsGroup.bindTooltip(
-      (layer) => {
-        const original = useStopDraftStore.getState().published[stopIdOf(layer as L.Layer)];
-        if (!original) return '';
-        return `<div style="font-family: sans-serif; font-size: 11px;">
-          <span style="color: #94a3b8; font-weight: 600;">Orijinal:</span>
-          <strong>${escapeHtml(original.stopId)}</strong> - ${escapeHtml(original.stopName)}
         </div>`;
       },
       { direction: 'top', offset: [0, -6] }
@@ -184,13 +175,11 @@ export function useStopsMapSync(map: L.Map | null): void {
     const markers = markersRef.current;
     const ghosts = ghostsRef.current;
     const visibleIds = new Set<string>();
-    const movedIds = new Set<string>();
 
     for (const stop of effectiveStops) {
       visibleIds.add(stop.stopId);
       const original = published[stop.stopId];
       const moved = isMovedFromPublished(stop, original);
-      if (moved) movedIds.add(stop.stopId);
       const styleKey: StopStyleKey = moved ? 'moved' : isTerminalStop(stop) ? 'terminal' : 'normal';
 
       const entry = markers.get(stop.stopId);
@@ -227,26 +216,29 @@ export function useStopsMapSync(map: L.Map | null): void {
       }
     }
 
-    // Hayalet pinler: sadece taşınan durakların orijinal konumunda
-    for (const stopId of movedIds) {
-      const original = published[stopId];
-      const ghost = ghosts.get(stopId);
+    // Hayalet halkalar: draft'ta taşınan ya da silinen published durakların orijinal konumunda
+    const ghostIds = new Set<string>();
+    for (const entry of Object.values(draft)) {
+      const original = published[entry.stopId];
+      if (!original) continue;
+      if (!isDeletedStop(entry) && !isMovedFromPublished(entry, original)) continue;
+      ghostIds.add(entry.stopId);
+
+      const ghost = ghosts.get(entry.stopId);
       if (!ghost) {
-        const options: StopMarkerOptions = {
+        const marker = L.circleMarker([original.lat, original.lon], {
           ...PUBLISHED_GHOST_STOP_STYLE,
           renderer: ghostsRenderer,
-          interactive: true,
-          stopId,
-        };
-        const marker = L.circleMarker([original.lat, original.lon], options);
+          interactive: false,
+        });
         ghostsGroup.addLayer(marker);
-        ghosts.set(stopId, marker);
+        ghosts.set(entry.stopId, marker);
       } else {
         ghost.setLatLng([original.lat, original.lon]);
       }
     }
     for (const [stopId, ghost] of ghosts) {
-      if (!movedIds.has(stopId)) {
+      if (!ghostIds.has(stopId)) {
         ghostsGroup.removeLayer(ghost);
         ghosts.delete(stopId);
       }
@@ -255,5 +247,5 @@ export function useStopsMapSync(map: L.Map | null): void {
     // Durak verisi değiştiyse açık tutamaç artık eski konumu gösteriyor olabilir
     dragHandleRef.current?.remove();
     dragHandleRef.current = null;
-  }, [map, published, effectiveStops]);
+  }, [map, published, draft, effectiveStops]);
 }

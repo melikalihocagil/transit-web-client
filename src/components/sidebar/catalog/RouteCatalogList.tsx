@@ -8,6 +8,8 @@ interface RouteCatalogListProps {
   searchQuery: string;
   selectedRouteId: string | null;
   affectedRouteIds?: string[];
+  /** Yerel (kaydedilmemiş) taslağı olan hatlar */
+  localDraftRouteIds?: string[];
   onSelectRoute: (routeId: string) => void;
   isLoading: boolean;
   error: Error | null;
@@ -19,6 +21,7 @@ export const RouteCatalogList: React.FC<RouteCatalogListProps> = ({
   searchQuery,
   selectedRouteId,
   affectedRouteIds = [],
+  localDraftRouteIds = [],
   onSelectRoute,
   isLoading,
   error,
@@ -107,6 +110,7 @@ export const RouteCatalogList: React.FC<RouteCatalogListProps> = ({
           route={route}
           isSelected={route.routeId === selectedRouteId}
           isAffected={affectedRouteIds.includes(route.routeId)}
+          hasLocalDraft={localDraftRouteIds.includes(route.routeId)}
           onSelect={onSelectRoute}
         />
       ))}

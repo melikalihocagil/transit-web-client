@@ -132,8 +132,9 @@ export function createGhostStopIcon(sequence?: number): L.DivIcon {
 }
 
 /**
- * Rota çizgisi üzerine gelindiğinde veya çizgi sürüklenirken beliren dinamik tutamaç pini.
- * Canlı mavi merkez, beyaz çerçeve, parlak dış gölge, 'grab' imleç.
+ * Rota çizgisi üzerine gelindiğinde veya çizgi sürüklenirken beliren işaret noktası.
+ * Canlı mavi merkez, beyaz çerçeve, parlak dış gölge. Yalnızca görseldir: fare olaylarını
+ * yakalamaz (olaylar alttaki yakalama çizgisine düşer), bu yüzden haritada takılı kalamaz.
  */
 export function createLineDragHandleIcon(): L.DivIcon {
   const html = `
@@ -144,9 +145,7 @@ export function createLineDragHandleIcon(): L.DivIcon {
       background-color: #3b82f6;
       border: 2.5px solid #ffffff;
       box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5), 0 2px 6px rgba(0, 0, 0, 0.45);
-      cursor: grab;
       user-select: none;
-      pointer-events: auto;
       transform-origin: center;
       transition: transform 0.12s ease-out;
     "></div>

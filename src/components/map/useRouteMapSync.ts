@@ -1,15 +1,33 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { useRouteStore, useStopDraftStore, selectEffectiveStops } from '../../store';
+import { useRouteStore, useStopDraftStore, selectEffectiveStops, selectActiveDraft } from '../../store';
 import { MAP_PANES } from './mapPanes';
-import { PUBLISHED_LINE_STYLE, DRAFT_LINE_STYLE } from './mapStyles';
+import {
+  PUBLISHED_LINE_STYLE,
+  DRAFT_LINE_STYLE,
+  DRAFT_LINE_HOVER_STYLE,
+  DRAFT_LINE_HIT_STYLE,
+} from './mapStyles';
 import {
   createRouteStopIcon,
   createViaHandleIcon,
   createGhostStopIcon,
   createLineDragHandleIcon,
 } from './markerFactory';
-import { isTerminalStop, type Stop, type RouteNavigation, type Via } from '../../model';
+import {
+  isTerminalStop,
+  locateLegs,
+  formatDistance,
+  formatDuration,
+  type Stop,
+  type RouteNavigation,
+  type LegSlot,
+} from '../../model';
+
+/** Bu kadar pikselden az hareket eden basış sürükleme değil, tıklama sayılır. */
+const CLICK_TOLERANCE_PX = 4;
+/** Bırakma noktasına bu kadar piksel yakın şehir durağına kilitlenilir. */
+const STOP_SNAP_RADIUS_PX = 20;
 
 /**
  * Navigasyon bacaklarından (legs) tüm polyline koordinatlarını derler.
@@ -26,73 +44,24 @@ function extractPolylineCoords(navigation: RouteNavigation | null): [number, num
 }
 
 /**
- * Çizgiye tıklandığında veya sürüklendiğinde hangi iki durak (fromStopId -> toStopId) arasına denk geldiğini
- * 2D piksel projeksiyonu ile OSRM bacakları ve segmentler üzerinden tespit ederek bulur.
+ * Bırakma noktasına 20 piksel içindeki en yakın şehir durağını bulur (mıknatıs kilitleme).
  */
-function findNearestStopSegment(
-  clickLatLng: L.LatLng,
-  stops: Stop[],
-  vias: Via[],
-  navigation: RouteNavigation | null,
-  map: L.Map
-): { fromStopId: string; toStopId: string } | null {
-  if (stops.length < 2) return null;
+function findSnapStop(map: L.Map, latlng: L.LatLng): Stop | null {
+  const dropPoint = map.latLngToLayerPoint(latlng);
+  const allCityStops = selectEffectiveStops(useStopDraftStore.getState());
+  let snappedStop: Stop | null = null;
+  let minPixelDist = STOP_SNAP_RADIUS_PX;
 
-  const clickPoint = map.latLngToLayerPoint(clickLatLng);
-  let minDistance = Infinity;
-  let bestFromStopId = stops[0].stopId;
-  let bestToStopId = stops[1].stopId;
-
-  // 1. Eğer navigation legs mevcutsa, her bir OSRM leg'ini ait olduğu (fromStopId -> toStopId) segmentine bağla
-  if (navigation && navigation.legs && navigation.legs.length > 0) {
-    const legSegmentMap: { fromStopId: string; toStopId: string }[] = [];
-    for (let i = 0; i < stops.length - 1; i++) {
-      const fromId = stops[i].stopId;
-      const toId = stops[i + 1].stopId;
-      const countVias = vias.filter((v) => v.fromStopId === fromId && v.toStopId === toId).length;
-      for (let k = 0; k <= countVias; k++) {
-        legSegmentMap.push({ fromStopId: fromId, toStopId: toId });
-      }
-    }
-
-    if (legSegmentMap.length === navigation.legs.length) {
-      for (let legIdx = 0; legIdx < navigation.legs.length; legIdx++) {
-        const legCoords = navigation.legs[legIdx].coordinates;
-        if (!legCoords || legCoords.length < 2) continue;
-
-        for (let j = 0; j < legCoords.length - 1; j++) {
-          const p1 = map.latLngToLayerPoint([legCoords[j].lat, legCoords[j].lon]);
-          const p2 = map.latLngToLayerPoint([legCoords[j + 1].lat, legCoords[j + 1].lon]);
-          const dist = L.LineUtil.pointToSegmentDistance(clickPoint, p1, p2);
-          if (dist < minDistance) {
-            minDistance = dist;
-            bestFromStopId = legSegmentMap[legIdx].fromStopId;
-            bestToStopId = legSegmentMap[legIdx].toStopId;
-          }
-        }
-      }
-
-      return { fromStopId: bestFromStopId, toStopId: bestToStopId };
+  for (const cityStop of allCityStops) {
+    const stopPoint = map.latLngToLayerPoint([cityStop.lat, cityStop.lon]);
+    const dist = dropPoint.distanceTo(stopPoint);
+    if (dist <= minPixelDist) {
+      minPixelDist = dist;
+      snappedStop = cityStop;
     }
   }
 
-  // 2. Fallback: Durak koordinatları arasındaki 2D projeksiyon mesafesi
-  for (let i = 0; i < stops.length - 1; i++) {
-    const p1 = map.latLngToLayerPoint([stops[i].lat, stops[i].lon]);
-    const p2 = map.latLngToLayerPoint([stops[i + 1].lat, stops[i + 1].lon]);
-
-    const dist = L.LineUtil.pointToSegmentDistance(clickPoint, p1, p2);
-    if (dist < minDistance) {
-      minDistance = dist;
-      bestFromStopId = stops[i].stopId;
-      bestToStopId = stops[i + 1].stopId;
-    }
-  }
-
-  return {
-    fromStopId: bestFromStopId,
-    toStopId: bestToStopId,
-  };
+  return snappedStop;
 }
 
 /**
@@ -101,13 +70,16 @@ function findNearestStopSegment(
  * Kurallar:
  * 1. published: Alt katmanda kesikli gri referans çizgisi ve hayalet duraklar.
  * 2. draft: Üst katmanda canlı mavi çalışma çizgisi, sürüklenebilir durak pinleri ve via tutamaçları.
- * 3. Çizgi Tıklaması: Tıklanan yere yeni bir Via nesnesi eklenir (addViaIntent).
- * 4. Mıknatıs Kilitleme: Bir via durak yakınına (<= 20px) bırakılırsa durak nesnesine kilitlenir (snapViaIntent).
+ * 3. Bacaklar: Navigasyon bacakları duraklar + via'larla eşleşiyorsa her bacak ayrı çizilir;
+ *    tıklanan/sürüklenen bacağın durak çifti ve via sırası kesin olarak bilinir (locateLegs).
+ * 4. Çizgi Tıklaması/Sürüklemesi: Bacağa yeni via eklenir (addViaIntent) ya da yakındaki
+ *    şehir durağı araya girer (addStopIntent).
+ * 5. Mıknatıs Kilitleme: Bir via durak yakınına (<= 20px) bırakılırsa durak nesnesine kilitlenir (snapViaIntent).
  */
 export function useRouteMapSync(map: L.Map | null): void {
   const routeId = useRouteStore((state) => state.routeId);
   const published = useRouteStore((state) => state.published);
-  const draft = useRouteStore((state) => state.draft);
+  const draft = useRouteStore(selectActiveDraft);
   const isRouting = useRouteStore((state) => state.isRouting);
 
   const moveDraftStopIntent = useRouteStore((state) => state.moveDraftStopIntent);
@@ -123,9 +95,6 @@ export function useRouteMapSync(map: L.Map | null): void {
   const draftViasGroupRef = useRef<L.LayerGroup | null>(null);
   const ghostStopsGroupRef = useRef<L.LayerGroup | null>(null);
   const lastFittedRouteIdRef = useRef<string | null>(null);
-
-  const lineDragHandleRef = useRef<L.Marker | null>(null);
-  const isDraggingLineRef = useRef<boolean>(false);
 
   // 1. Katman gruplarını başlat ve haritaya ekle
   useEffect(() => {
@@ -149,12 +118,6 @@ export function useRouteMapSync(map: L.Map | null): void {
       ghostGroup.remove();
       draftStopsGroup.remove();
       draftViasGroup.remove();
-
-      if (lineDragHandleRef.current) {
-        lineDragHandleRef.current.remove();
-        lineDragHandleRef.current = null;
-      }
-      isDraggingLineRef.current = false;
 
       publishedLineGroupRef.current = null;
       draftLineGroupRef.current = null;
@@ -182,15 +145,40 @@ export function useRouteMapSync(map: L.Map | null): void {
     draftStopsGroup.clearLayers();
     draftViasGroup.clearLayers();
 
-    if (lineDragHandleRef.current) {
-      lineDragHandleRef.current.remove();
-      lineDragHandleRef.current = null;
-    }
-    isDraggingLineRef.current = false;
+    // Çizgi üzerindeki işaret noktası ve süren sürükleme bu effect çalışmasına aittir;
+    // temizlikte ikisi de sökülür (sürükleme ortasında veri değişse de harita kilitli kalmaz)
+    let lineHandle: L.Marker | null = null;
+    let endLineDrag: (() => void) | null = null;
+
+    const removeLineHandle = () => {
+      if (lineHandle) {
+        lineHandle.remove();
+        lineHandle = null;
+      }
+    };
+
+    const showLineHandle = (latlng: L.LatLng) => {
+      if (!lineHandle) {
+        lineHandle = L.marker(latlng, {
+          icon: createLineDragHandleIcon(),
+          pane: MAP_PANES.DRAFT_VIAS,
+          interactive: false,
+          keyboard: false,
+          zIndexOffset: 1500,
+        }).addTo(map);
+      } else {
+        lineHandle.setLatLng(latlng);
+      }
+    };
+
+    const cleanup = () => {
+      endLineDrag?.();
+      removeLineHandle();
+    };
 
     if (!routeId) {
       lastFittedRouteIdRef.current = null;
-      return;
+      return cleanup;
     }
 
     // --- A) Alt Katman: PUBLISHED Rota Çizgisi ---
@@ -209,7 +197,7 @@ export function useRouteMapSync(map: L.Map | null): void {
     // --- B) Üst Katman: DRAFT (Aktif Tezgah) ---
     // Eğer draft henüz oluşmamışsa Copy-on-Write kuralı gereği published'ı referans al
     const activeRoute = draft ?? published;
-    if (!activeRoute) return;
+    if (!activeRoute) return cleanup;
 
     // Hat ilk seçildiğinde veya değiştiğinde haritayı hattın sınırlarına sığdır
     if (lastFittedRouteIdRef.current !== routeId && activeRoute.stops.length > 0) {
@@ -218,190 +206,158 @@ export function useRouteMapSync(map: L.Map | null): void {
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
     }
 
-    // 1. Aktif Rota Çizgisi (SVG Tabanlı, Piksel Hassas Tıklama Yakalama)
-    const isCalculating = isRouting || !activeRoute.navigation;
-    const draftCoords = activeRoute.navigation
-      ? extractPolylineCoords(activeRoute.navigation)
-      : activeRoute.stops.map((s) => [s.lat, s.lon] as [number, number]);
+    // 1. Aktif Rota Çizgisi
+    const navigation = activeRoute.navigation;
+    const slots = locateLegs(activeRoute.stops, activeRoute.vias);
+    const isAligned = navigation != null && navigation.legs.length === slots.length && !isRouting;
+    const draftSvgRenderer = L.svg({ pane: MAP_PANES.DRAFT_LINE });
 
-    if (draftCoords.length > 0) {
-      const lineStyle: L.PolylineOptions = isCalculating
-        ? {
-            ...DRAFT_LINE_STYLE,
-            opacity: 0.5,
-            dashArray: '4, 6',
-          }
-        : DRAFT_LINE_STYLE;
+    if (!isAligned || !navigation) {
+      // Hesap sürüyor ya da bacaklar tutarsız: kesikli tek çizgi, etkileşimsiz
+      const draftCoords = navigation
+        ? extractPolylineCoords(navigation)
+        : activeRoute.stops.map((s) => [s.lat, s.lon] as [number, number]);
 
-      const draftSvgRenderer = L.svg({ pane: MAP_PANES.DRAFT_LINE });
-      const draftPolyline = L.polyline(draftCoords, {
-        ...lineStyle,
-        renderer: draftSvgRenderer,
-      });
-
-      // Çizgi üzerinde dinamik tek hamlede sürükle-bırak tutamacı (Single-Gesture Polyline Drag)
-      let activeSegment: { fromStopId: string; toStopId: string } | null = null;
-
-      const removeLineDragHandle = () => {
-        if (lineDragHandleRef.current) {
-          lineDragHandleRef.current.remove();
-          lineDragHandleRef.current = null;
-        }
-      };
-
-      const createOrGetLineDragHandle = (latlng: L.LatLng): L.Marker => {
-        if (lineDragHandleRef.current) {
-          return lineDragHandleRef.current;
-        }
-
-        const handle = L.marker(latlng, {
-          icon: createLineDragHandleIcon(),
-          pane: MAP_PANES.DRAFT_VIAS,
-          draggable: true,
-          zIndexOffset: 1500,
-        }).addTo(map);
-
-        handle.bindTooltip(
-          `<div style="font-family: sans-serif; font-size: 11px;">
-            <strong style="color: #3b82f6;">Güzergahı Bük / Sürükle</strong><br/>
-            <span style="color: #94a3b8; font-size: 10px;">Yeni yola sürükleyin veya durağa kilitleyin</span>
-          </div>`,
-          { direction: 'top', offset: [0, -10] }
-        );
-
-        handle.on('dragstart', () => {
-          isDraggingLineRef.current = true;
-          handle.closeTooltip();
-          activeSegment = findNearestStopSegment(
-            handle.getLatLng(),
-            activeRoute.stops,
-            activeRoute.vias,
-            activeRoute.navigation,
-            map
-          );
+      if (draftCoords.length > 0) {
+        const draftPolyline = L.polyline(draftCoords, {
+          ...DRAFT_LINE_STYLE,
+          opacity: 0.5,
+          dashArray: '4, 6',
+          interactive: false,
+          renderer: draftSvgRenderer,
         });
+        draftLineGroup.addLayer(draftPolyline);
+      }
+    } else {
+      // Her bacak ayrı çizilir: görünür çizgi (etkileşimsiz) + saydam kalın yakalama çizgisi
+      const legCountBySegment = new Map<number, number>();
+      for (const slot of slots) {
+        legCountBySegment.set(slot.segmentIndex, (legCountBySegment.get(slot.segmentIndex) ?? 0) + 1);
+      }
 
-        handle.on('dragend', (e) => {
-          isDraggingLineRef.current = false;
-          const targetMarker = e.target as L.Marker;
-          const dropLatLng = targetMarker.getLatLng();
-          const dropPoint = map.latLngToLayerPoint(dropLatLng);
+      // Basılı tutulan bacak çizgi boyunca sürüklenir; bırakınca via ya da durak eklenir
+      const startLineDrag = (slot: LegSlot, visible: L.Polyline, onLine: L.LatLng, startPoint: L.Point) => {
+        map.dragging.disable();
 
-          // Şehir duraklarına 20 piksel mıknatıs kilitleme kontrolü
-          const allCityStops = selectEffectiveStops(useStopDraftStore.getState());
-          let snappedStop: Stop | null = null;
-          let minPixelDist = 20;
-
-          for (const cityStop of allCityStops) {
-            const stopPoint = map.latLngToLayerPoint([cityStop.lat, cityStop.lon]);
-            const dist = dropPoint.distanceTo(stopPoint);
-            if (dist <= minPixelDist) {
-              minPixelDist = dist;
-              snappedStop = cityStop;
-            }
-          }
-
-          if (snappedStop && activeSegment) {
-            // Bir durağa kilitlendi: Durağı ilgili segmente durak olarak ekle
-            const fromIdx = activeRoute.stops.findIndex((s) => s.stopId === activeSegment!.fromStopId);
-            const insertIdx = fromIdx !== -1 ? fromIdx + 1 : undefined;
-            addStopIntent(snappedStop, insertIdx);
-          } else if (activeSegment) {
-            // Serbest yola bırakıldı: Yeni Via ekle
-            const newVia: Via = {
-              fromStopId: activeSegment.fromStopId,
-              toStopId: activeSegment.toStopId,
-              viaSequence: 1,
-              lat: dropLatLng.lat,
-              lon: dropLatLng.lng,
-            };
-            addViaIntent(newVia);
-          }
-
-          removeLineDragHandle();
-        });
-
-        handle.on('click', (e: L.LeafletMouseEvent) => {
-          L.DomEvent.stopPropagation(e);
-          if (isDraggingLineRef.current) return;
-          const segment = findNearestStopSegment(
-            e.latlng,
-            activeRoute.stops,
-            activeRoute.vias,
-            activeRoute.navigation,
-            map
-          );
-          if (!segment) return;
-
-          const newVia: Via = {
-            fromStopId: segment.fromStopId,
-            toStopId: segment.toStopId,
-            viaSequence: 1,
-            lat: e.latlng.lat,
-            lon: e.latlng.lng,
-          };
-          addViaIntent(newVia);
-          removeLineDragHandle();
-        });
-
-        lineDragHandleRef.current = handle;
-        return handle;
-      };
-
-      // 1. Çizgi üzerinde gezinirken (Hover) tutamacı konumlandır
-      draftPolyline.on('mousemove', (e: L.LeafletMouseEvent) => {
-        if (isDraggingLineRef.current) return;
-        const handle = createOrGetLineDragHandle(e.latlng);
-        handle.setLatLng(e.latlng);
-      });
-
-      // 2. Çizgiden fare ayrıldığında sürükleme aktif değilse kaldır
-      draftPolyline.on('mouseout', (e: L.LeafletMouseEvent) => {
-        if (isDraggingLineRef.current) return;
-        const relatedTarget = (e.originalEvent as MouseEvent)?.relatedTarget as HTMLElement | null;
-        if (relatedTarget && relatedTarget.closest?.('.transit-line-drag-handle')) {
-          return;
-        }
-        removeLineDragHandle();
-      });
-
-      // 3. Çizgiye fare basıldığı an (mousedown) tek hamlede sürüklemeyi başlat
-      draftPolyline.on('mousedown', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        const handle = createOrGetLineDragHandle(e.latlng);
-        handle.setLatLng(e.latlng);
-
-        if (handle.dragging) {
-          (handle.dragging as unknown as { _onDown: (ev: MouseEvent | TouchEvent) => void })._onDown(e.originalEvent);
-        }
-      });
-
-      // 4. Çizgiye doğrudan tıklanması (drag yapılmadan bırakılırsa)
-      draftPolyline.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        if (isDraggingLineRef.current) return;
-        const segment = findNearestStopSegment(
-          e.latlng,
-          activeRoute.stops,
-          activeRoute.vias,
-          activeRoute.navigation,
-          map
-        );
-        if (!segment) return;
-
-        const newVia: Via = {
-          fromStopId: segment.fromStopId,
-          toStopId: segment.toStopId,
-          viaSequence: 1,
-          lat: e.latlng.lat,
-          lon: e.latlng.lng,
+        const handleMove = (e: L.LeafletMouseEvent) => {
+          showLineHandle(e.latlng);
         };
 
-        addViaIntent(newVia);
-        removeLineDragHandle();
-      });
+        const handleUp = (ev: MouseEvent) => {
+          const dropLatLng = map.mouseEventToLatLng(ev);
+          const movedPx = map.mouseEventToContainerPoint(ev).distanceTo(startPoint);
+          endLineDrag?.();
 
-      draftLineGroup.addLayer(draftPolyline);
+          if (movedPx < CLICK_TOLERANCE_PX) {
+            // Tıklama: via, çizgi üzerindeki noktaya eklenir
+            addViaIntent({
+              fromStopId: slot.fromStopId,
+              toStopId: slot.toStopId,
+              viaSequence: slot.viaSequence,
+              lat: onLine.lat,
+              lon: onLine.lng,
+            });
+            return;
+          }
+
+          const snappedStop = findSnapStop(map, dropLatLng);
+          if (snappedStop) {
+            // Bir şehir durağına bırakıldı: durak bu bacağın içine girer
+            addStopIntent(snappedStop, slot);
+          } else {
+            // Serbest yola bırakıldı: bacağa yeni via
+            addViaIntent({
+              fromStopId: slot.fromStopId,
+              toStopId: slot.toStopId,
+              viaSequence: slot.viaSequence,
+              lat: dropLatLng.lat,
+              lon: dropLatLng.lng,
+            });
+          }
+        };
+
+        map.on('mousemove', handleMove);
+        document.addEventListener('mouseup', handleUp);
+
+        endLineDrag = () => {
+          map.off('mousemove', handleMove);
+          document.removeEventListener('mouseup', handleUp);
+          map.dragging.enable();
+          visible.setStyle(DRAFT_LINE_STYLE);
+          removeLineHandle();
+          endLineDrag = null;
+        };
+      };
+
+      navigation.legs.forEach((leg, i) => {
+        const slot = slots[i];
+        const coords = leg.coordinates.map((c) => [c.lat, c.lon] as [number, number]);
+        if (coords.length < 2) return;
+
+        const visible = L.polyline(coords, {
+          ...DRAFT_LINE_STYLE,
+          interactive: false,
+          renderer: draftSvgRenderer,
+        });
+        const hit = L.polyline(coords, {
+          ...DRAFT_LINE_HIT_STYLE,
+          renderer: draftSvgRenderer,
+        });
+
+        const fromStop = activeRoute.stops[slot.segmentIndex];
+        const toStop = activeRoute.stops[slot.segmentIndex + 1];
+        const legCount = legCountBySegment.get(slot.segmentIndex) ?? 1;
+
+        hit.bindTooltip(
+          `<div style="font-family: sans-serif; font-size: 11px;">
+            <strong>${fromStop.stopName} &rarr; ${toStop.stopName}</strong><br/>
+            <span style="color: #94a3b8;">bacak ${slot.viaSequence}/${legCount} &middot; ${formatDistance(leg.distance)} &middot; ${formatDuration(leg.duration)}</span>
+          </div>`,
+          { sticky: true, direction: 'top', offset: [0, -10] }
+        );
+
+        // Çizgi üzerindeki en yakın nokta (işaret ve tıklamayla eklenen via buraya oturur)
+        const pointOnLine = (latlng: L.LatLng): L.LatLng => {
+          const closest = visible.closestLayerPoint(map.latLngToLayerPoint(latlng));
+          return closest ? map.layerPointToLatLng(closest) : latlng;
+        };
+
+        hit.on('mouseover', () => {
+          if (endLineDrag) return;
+          visible.setStyle(DRAFT_LINE_HOVER_STYLE);
+        });
+
+        hit.on('mouseout', () => {
+          if (endLineDrag) return;
+          visible.setStyle(DRAFT_LINE_STYLE);
+          removeLineHandle();
+        });
+
+        hit.on('mousemove', (e: L.LeafletMouseEvent) => {
+          if (endLineDrag) return;
+          showLineHandle(pointOnLine(e.latlng));
+        });
+
+        // Ekleme fare bırakılınca yapılır; tıklama haritaya ulaşmasın
+        hit.on('click', (e: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(e);
+        });
+
+        hit.on('mousedown', (e: L.LeafletMouseEvent) => {
+          if (e.originalEvent.button !== 0 || endLineDrag) return;
+          L.DomEvent.stopPropagation(e);
+          L.DomEvent.preventDefault(e.originalEvent);
+          hit.closeTooltip();
+
+          const onLine = pointOnLine(e.latlng);
+          visible.setStyle(DRAFT_LINE_HOVER_STYLE);
+          showLineHandle(onLine);
+          startLineDrag(slot, visible, onLine, map.mouseEventToContainerPoint(e.originalEvent));
+        });
+
+        draftLineGroup.addLayer(visible);
+        draftLineGroup.addLayer(hit);
+      });
     }
 
     // 2. Published ile Draft Durakları Arasındaki Sapmalar (Hayalet Pinler)
@@ -471,21 +427,7 @@ export function useRouteMapSync(map: L.Map | null): void {
       viaMarker.on('dragend', (e) => {
         const target = e.target as L.Marker;
         const dropLatLng = target.getLatLng();
-        const dropPoint = map.latLngToLayerPoint(dropLatLng);
-
-        // Şehirdeki tüm duraklar arasından 20 piksel yakında olan var mı kontrol et
-        const allCityStops = selectEffectiveStops(useStopDraftStore.getState());
-        let snappedStop: Stop | null = null;
-        let minPixelDist = 20; // 20 piksel mıknatıs eşiği
-
-        for (const cityStop of allCityStops) {
-          const stopPoint = map.latLngToLayerPoint([cityStop.lat, cityStop.lon]);
-          const dist = dropPoint.distanceTo(stopPoint);
-          if (dist <= minPixelDist) {
-            minPixelDist = dist;
-            snappedStop = cityStop;
-          }
-        }
+        const snappedStop = findSnapStop(map, dropLatLng);
 
         if (snappedStop) {
           // Bir durağın üzerine bırakıldı: Via'yı bu durağa dönüştür (Snap to Stop)
@@ -498,6 +440,8 @@ export function useRouteMapSync(map: L.Map | null): void {
 
       draftViasGroup.addLayer(viaMarker);
     });
+
+    return cleanup;
   }, [
     map,
     routeId,

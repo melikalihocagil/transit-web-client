@@ -16,12 +16,14 @@ import {
 import { SortableStopRow } from './SortableStopRow';
 import { RouteViaBadge } from './RouteViaBadge';
 import { MapPin, AlertCircle } from 'lucide-react';
-import type { Stop, Via } from '../../../model';
-import { isViaBetween, sortViasBySequence } from '../../../model';
+import type { LegTotals, Stop, Via } from '../../../model';
+import { isViaBetween, sortViasBySequence, formatDistance, formatDuration } from '../../../model';
 
 interface SortableStopListProps {
   stops: Stop[];
   vias: Via[];
+  /** Her durak aralığının (i -> i+1) toplam mesafe/süresi; `null` ise (hesap sürüyor) gösterilmez. */
+  segmentTotals?: LegTotals[] | null;
   canRemove: boolean;
   onReorder: (fromIndex: number, toIndex: number) => void;
   onRemoveStop: (stopId: string) => void;
@@ -32,6 +34,7 @@ interface SortableStopListProps {
 export const SortableStopList: React.FC<SortableStopListProps> = ({
   stops,
   vias,
+  segmentTotals,
   canRemove,
   onReorder,
   onRemoveStop,
@@ -95,6 +98,7 @@ export const SortableStopList: React.FC<SortableStopListProps> = ({
                     vias.filter((v) => isViaBetween(v, stop.stopId, nextStop.stopId))
                   )
                 : [];
+              const segmentTotal = nextStop ? segmentTotals?.[index] : undefined;
 
               return (
                 <React.Fragment key={stop.stopId}>
@@ -116,6 +120,13 @@ export const SortableStopList: React.FC<SortableStopListProps> = ({
                       onRemove={onRemoveVia}
                     />
                   ))}
+
+                  {/* Bir sonraki durağa kadar aradaki tüm bacakların toplamı */}
+                  {segmentTotal && (
+                    <div className="ml-4 pl-4 py-0.5 border-l-2 border-dotted border-slate-700 text-[10px] font-mono text-slate-500">
+                      {formatDistance(segmentTotal.distance)} &middot; {formatDuration(segmentTotal.duration)}
+                    </div>
+                  )}
                 </React.Fragment>
               );
             })}

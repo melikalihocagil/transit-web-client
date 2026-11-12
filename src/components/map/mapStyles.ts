@@ -18,6 +18,22 @@ export const DRAFT_LINE_STYLE: L.PolylineOptions = {
   interactive: true,
 };
 
+// Üzerine gelinen bacağın vurgusu (görünür çizgiye setStyle ile uygulanır)
+export const DRAFT_LINE_HOVER_STYLE: L.PathOptions = {
+  color: '#60a5fa', // Blue 400
+  weight: 7,
+  opacity: 1,
+};
+
+// Bacak başına saydam, kalın yakalama çizgisi (olayları bu yakalar; görünür çizgi etkileşimsizdir)
+export const DRAFT_LINE_HIT_STYLE: L.PolylineOptions = {
+  color: '#000000',
+  weight: 16,
+  opacity: 0,
+  pane: MAP_PANES.DRAFT_LINE,
+  interactive: true,
+};
+
 export const CITY_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
   radius: 4,
   color: '#334155', // Slate 700

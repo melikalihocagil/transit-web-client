@@ -6,6 +6,8 @@ interface RouteCardProps {
   route: Route;
   isSelected: boolean;
   isAffected?: boolean;
+  /** Bu tarayıcıda kaydedilmemiş yerel taslağı var mı? */
+  hasLocalDraft?: boolean;
   onSelect: (routeId: string) => void;
 }
 
@@ -13,6 +15,7 @@ export const RouteCard: React.FC<RouteCardProps> = ({
   route,
   isSelected,
   isAffected = false,
+  hasLocalDraft = false,
   onSelect,
 }) => {
   const badgeBg = route.routeColor ? `#${route.routeColor.replace('#', '')}` : '#2563eb';
@@ -50,6 +53,12 @@ export const RouteCard: React.FC<RouteCardProps> = ({
             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 animate-pulse">
               <AlertTriangle className="w-2.5 h-2.5" />
               Etkilendi
+            </span>
+          )}
+
+          {hasLocalDraft && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-300 border border-blue-500/30">
+              Yerel Taslak
             </span>
           )}
 

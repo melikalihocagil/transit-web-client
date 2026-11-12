@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Route as RouteIcon, Loader2, AlertTriangle } from 'lucide-react';
-import { useRouteStore, useStopDraftStore, selectIsRouteDirty, selectAffectedRouteIds } from '../../store';
+import {
+  useRouteStore,
+  useStopDraftStore,
+  selectIsRouteDirty,
+  selectActiveDraft,
+  selectAffectedRouteIds,
+} from '../../store';
 import { useRoutesQuery } from '../../api';
 import { RouteSearchBar } from './catalog/RouteSearchBar';
 import { RouteCatalogList } from './catalog/RouteCatalogList';
@@ -8,6 +14,7 @@ import { RouteEditorHeader } from './editor/RouteEditorHeader';
 import { SortableStopList } from './editor/SortableStopList';
 import { focusMapCoordinate } from '../map/mapEvents';
 import type { Stop, Via } from '../../model';
+import { sumLegsByStopPair } from '../../model';
 
 export const RouteCatalogPanel: React.FC = () => {
   // 1. Sunucu Durumu: Hat Kataloğu (TanStack Query)
@@ -20,7 +27,8 @@ export const RouteCatalogPanel: React.FC = () => {
 
   // 2. Operatör Çalışma Tezgahı Durumu (Zustand Store)
   const routeId = useRouteStore((state) => state.routeId);
-  const draft = useRouteStore((state) => state.draft);
+  const draft = useRouteStore(selectActiveDraft);
+  const drafts = useRouteStore((state) => state.drafts);
   const published = useRouteStore((state) => state.published);
   const isRouting = useRouteStore((state) => state.isRouting);
   const isLoadingRoute = useRouteStore((state) => state.isLoading);
@@ -42,6 +50,18 @@ export const RouteCatalogPanel: React.FC = () => {
   // Aktif hat verisi ve künyesi
   const activeRoute = draft ?? published;
   const activeRouteInfo = routes.find((r) => r.routeId === routeId) ?? null;
+
+  // Yerel (kaydedilmemiş) taslağı olan hatlar
+  const localDraftRouteIds = useMemo(() => Object.keys(drafts), [drafts]);
+
+  // Duraklar arası toplam mesafe/süre (hesap sürerken ya da bacaklar tutarsızken gösterilmez)
+  const segmentTotals = useMemo(
+    () =>
+      activeRoute && !isRouting
+        ? sumLegsByStopPair(activeRoute.stops, activeRoute.vias, activeRoute.navigation)
+        : null,
+    [activeRoute, isRouting]
+  );
 
   // Filtrelenmiş hat listesi (etkilenen hat filtresi aktifse uygula)
   const baseRoutes = filterAffectedOnly
@@ -121,6 +141,7 @@ export const RouteCatalogPanel: React.FC = () => {
             searchQuery={searchQuery}
             selectedRouteId={routeId}
             affectedRouteIds={affectedRouteIds}
+            localDraftRouteIds={localDraftRouteIds}
             onSelectRoute={(id) => selectRouteIntent(id)}
             isLoading={isCatalogLoading}
             error={catalogError}
@@ -155,6 +176,7 @@ export const RouteCatalogPanel: React.FC = () => {
             <SortableStopList
               stops={activeRoute.stops}
               vias={activeRoute.vias}
+              segmentTotals={segmentTotals}
               canRemove={activeRoute.stops.length > 2}
               onReorder={reorderStopsIntent}
               onRemoveStop={removeStopIntent}

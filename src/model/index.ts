@@ -15,7 +15,18 @@ export {
 
 // 3. Ara Kılavuz Noktası (Via)
 export type { Via } from './via';
-export { isViaBetween, sortViasBySequence, getViaCoordinate } from './via';
+export { isViaBetween, isSameVia, sortViasBySequence, getViaCoordinate } from './via';
+
+// 3.1. Bacak Konumu (navigation.legs[i] -> durak çifti + via sırası; backend buildRouteCoordinates karşılığı)
+export type { LegSlot, LegTotals } from './route-legs';
+export {
+  locateLegs,
+  sumLegsByStopPair,
+  snapViasToLegs,
+  insertVia,
+  splitViasAtStop,
+  normalizeViaSequences,
+} from './route-legs';
 
 // 4. Yol Bacağı (Leg)
 export type { Leg } from './leg';
