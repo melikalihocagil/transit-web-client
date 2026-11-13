@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Üretilen altlık (scripts/rebuild-map.ps1)
+public/tiles/*.pmtiles

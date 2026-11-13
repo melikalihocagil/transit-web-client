@@ -64,6 +64,17 @@ export const MOVED_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
   pane: MAP_PANES.CITY_STOPS,
 };
 
+// Yayında olmayan, haritadan eklenmiş yeni durak (taslakta)
+export const NEW_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
+  opacity: 1,
+  radius: 6,
+  color: '#15803d', // Green 700
+  fillColor: '#22c55e', // Green 500
+  fillOpacity: 0.95,
+  weight: 2,
+  pane: MAP_PANES.CITY_STOPS,
+};
+
 export const PUBLISHED_GHOST_STOP_STYLE: L.CircleMarkerOptions = {
   radius: 6,
   color: '#94a3b8', // Slate 400

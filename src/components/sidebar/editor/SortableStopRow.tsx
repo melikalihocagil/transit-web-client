@@ -41,7 +41,7 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group flex items-center gap-2 p-2 rounded-lg border transition-all text-xs ${
+      className={`group flex items-center gap-2 p-2 rounded-lg border transition-all text-sm ${
         isDragging
           ? 'bg-blue-950/60 border-blue-500 shadow-lg'
           : 'bg-slate-900/80 border-slate-800/80 hover:bg-slate-800/60 hover:border-slate-700'
@@ -55,12 +55,12 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
         className="cursor-grab active:cursor-grabbing text-slate-500 hover:text-slate-300 p-1 -m-1 rounded hover:bg-slate-800/80 transition-colors"
         title="Durağın sırasını değiştirmek için sürükleyin"
       >
-        <GripVertical className="w-3.5 h-3.5" />
+        <GripVertical className="w-4 h-4" />
       </button>
 
       {/* 2. Sıra Rozeti ve Terminal Göstergesi */}
       <div
-        className={`w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-mono font-bold shrink-0 border ${
+        className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-mono font-bold shrink-0 border ${
           isTerminal
             ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
             : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
@@ -68,9 +68,9 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
         title={isTerminal ? 'Sevk Noktası (Terminal)' : 'Normal Durak'}
       >
         {isFirst ? (
-          <Flag className="w-3 h-3 text-emerald-400" />
+          <Flag className="w-3.5 h-3.5 text-emerald-400" />
         ) : isLast ? (
-          <MapPin className="w-3 h-3 text-rose-400" />
+          <MapPin className="w-3.5 h-3.5 text-rose-400" />
         ) : (
           index + 1
         )}
@@ -87,9 +87,9 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
           <span className="truncate font-medium text-slate-200 group-hover/focus:text-blue-300 transition-colors">
             {stop.stopName}
           </span>
-          <Crosshair className="w-3 h-3 text-transparent group-hover/focus:text-blue-400 shrink-0 transition-colors" />
+          <Crosshair className="w-3.5 h-3.5 text-transparent group-hover/focus:text-blue-400 shrink-0 transition-colors" />
         </div>
-        <div className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+        <div className="text-xs font-mono text-slate-500 flex items-center gap-1">
           <span>#{stop.stopId}</span>
           {isTerminal && <span className="text-amber-400/90">&bull; Terminal</span>}
         </div>
@@ -103,7 +103,7 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
         title={canRemove ? 'Durağı hattan çıkar' : 'Hat en az 2 duraktan oluşmalıdır'}
         className="text-slate-500 hover:text-rose-400 disabled:opacity-20 disabled:hover:text-slate-500 p-1.5 rounded hover:bg-rose-500/10 transition-colors cursor-pointer disabled:cursor-not-allowed"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Trash2 className="w-4 h-4" />
       </button>
     </div>
   );

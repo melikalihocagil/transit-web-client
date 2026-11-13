@@ -15,6 +15,7 @@ export {
 export {
   useStopDraftStore,
   normalizeDraft,
+  nextNewStopId,
   resolveStop,
   selectEffectiveStops,
   selectStopChangeCount,

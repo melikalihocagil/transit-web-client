@@ -11,13 +11,18 @@ import { create } from 'zustand';
 interface MapHighlightState {
   highlightedStopId: string | null;
   draggingStopId: string | null;
+  /** Haritadan yeni durak ekleme modu açık mı (bkz. useAddStopMode). */
+  isAddingStop: boolean;
   setHighlightedStopId: (stopId: string | null) => void;
   setDraggingStopId: (stopId: string | null) => void;
+  setAddingStop: (value: boolean) => void;
 }
 
 export const useMapHighlightStore = create<MapHighlightState>()((set) => ({
   highlightedStopId: null,
   draggingStopId: null,
+  isAddingStop: false,
   setHighlightedStopId: (stopId) => set({ highlightedStopId: stopId }),
   setDraggingStopId: (stopId) => set({ draggingStopId: stopId }),
+  setAddingStop: (value) => set({ isAddingStop: value }),
 }));

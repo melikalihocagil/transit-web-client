@@ -38,32 +38,32 @@ export const RouteCard: React.FC<RouteCardProps> = ({
         <div className="flex items-center gap-2">
           <span
             style={{ backgroundColor: badgeBg, color: badgeText }}
-            className="px-2 py-0.5 rounded font-mono font-bold text-xs shadow-xs tracking-wide"
+            className="px-2 py-0.5 rounded font-mono font-bold text-sm shadow-xs tracking-wide"
           >
             {route.routeShortName}
           </span>
-          <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
-            <Compass className="w-3 h-3 text-slate-500" />
+          <span className="text-[13px] font-mono text-slate-400 flex items-center gap-1">
+            <Compass className="w-3.5 h-3.5 text-slate-500" />
             Yön {route.directionId}
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
           {isAffected && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 animate-pulse">
-              <AlertTriangle className="w-2.5 h-2.5" />
+            <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 animate-pulse">
+              <AlertTriangle className="w-3 h-3" />
               Etkilendi
             </span>
           )}
 
           {hasLocalDraft && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-300 border border-blue-500/30">
+            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-500/15 text-blue-300 border border-blue-500/30">
               Yerel Taslak
             </span>
           )}
 
           {route.hasDraft && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30">
+            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30">
               Taslak Var
             </span>
           )}
@@ -71,14 +71,14 @@ export const RouteCard: React.FC<RouteCardProps> = ({
       </div>
 
       {/* Orta Kısım: Hat Adı */}
-      <div className="text-xs font-medium text-slate-200 line-clamp-1 group-hover:text-blue-300 transition-colors">
+      <div className="text-sm font-medium text-slate-200 line-clamp-1 group-hover:text-blue-300 transition-colors">
         {route.routeLongName}
       </div>
 
       {/* Alt Kısım: Varış Sevk Başlığı */}
       {route.tripHeadsign && (
-        <div className="text-[11px] text-slate-500 flex items-center gap-1 truncate font-sans">
-          <ArrowRight className="w-3 h-3 shrink-0 text-slate-600" />
+        <div className="text-[13px] text-slate-500 flex items-center gap-1 truncate font-sans">
+          <ArrowRight className="w-3.5 h-3.5 shrink-0 text-slate-600" />
           <span className="truncate">{route.tripHeadsign}</span>
         </div>
       )}

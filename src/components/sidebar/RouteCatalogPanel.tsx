@@ -77,7 +77,7 @@ export const RouteCatalogPanel: React.FC = () => {
   };
 
   return (
-    <aside className="w-80 lg:w-96 h-full bg-slate-900/95 border-r border-slate-800 flex flex-col z-10 shrink-0">
+    <aside className="w-96 lg:w-[440px] h-full bg-slate-900/95 border-r border-slate-800 flex flex-col z-10 shrink-0">
       {routeId === null ? (
         // ==========================================
         // MOD A: HAT KATALOĞU GÖRÜNÜMÜ
@@ -86,12 +86,12 @@ export const RouteCatalogPanel: React.FC = () => {
           {/* Panel Başlığı */}
           <div className="p-3 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <RouteIcon className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+              <RouteIcon className="w-5 h-5 text-blue-400" />
+              <span className="text-sm font-semibold uppercase tracking-wider text-slate-300">
                 Hat Kataloğu
               </span>
             </div>
-            <span className="text-[11px] text-slate-500 font-mono">
+            <span className="text-[13px] text-slate-500 font-mono">
               {routes.length} hat
             </span>
           </div>
@@ -113,9 +113,9 @@ export const RouteCatalogPanel: React.FC = () => {
 
           {/* Etkilenen Hatlar Uyarı Rozeti / Filtreleme Çubuğu */}
           {affectedRouteIds.length > 0 && (
-            <div className="mx-3 mt-2 p-2 rounded-lg bg-amber-950/30 border border-amber-500/30 flex items-center justify-between text-xs">
+            <div className="mx-3 mt-2 p-2 rounded-lg bg-amber-950/30 border border-amber-500/30 flex items-center justify-between text-sm">
               <div className="flex items-center gap-1.5 text-amber-300">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
                 <span>
                   <strong>{affectedRouteIds.length} hat</strong> etkilendi
                 </span>
@@ -123,7 +123,7 @@ export const RouteCatalogPanel: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setFilterAffectedOnly((prev) => !prev)}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border ${
+                className={`px-2 py-0.5 rounded text-[13px] font-medium transition-colors cursor-pointer border ${
                   filterAffectedOnly
                     ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
                     : 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
@@ -168,8 +168,8 @@ export const RouteCatalogPanel: React.FC = () => {
           {/* Durak ve Via Sıralama Listesi */}
           {isLoadingRoute ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-500 gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
-              <span className="text-xs text-slate-400">Hat durakları yükleniyor...</span>
+              <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
+              <span className="text-sm text-slate-400">Hat durakları yükleniyor...</span>
             </div>
           ) : activeRoute ? (
             <SortableStopList
@@ -183,7 +183,7 @@ export const RouteCatalogPanel: React.FC = () => {
               onFocusStop={handleFocusStop}
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center p-6 text-center text-slate-500 text-xs">
+            <div className="flex-1 flex items-center justify-center p-6 text-center text-slate-500 text-sm">
               Hat verisi bulunamadı.
             </div>
           )}

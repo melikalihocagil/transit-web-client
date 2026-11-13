@@ -56,7 +56,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* 3. Alt Durum Çubuğu Bileşeni */}
-      <StatusBar statusText="Sistem Hazır" tileLabel="Esri Light Gray" />
+      <StatusBar statusText="Sistem Hazır" />
     </div>
   );
 };

@@ -46,6 +46,16 @@ export interface StopDraftState {
   /** Sunucudaki etkilenen hat listesini duraklardan bağımsız çeker (yerelde liste ya da geçmiş varsa çekmez). */
   loadAffectedRoutes: () => Promise<void>;
   moveStop: (stopId: string, lat: number, lon: number) => void;
+  /**
+   * Haritadan yeni (test) durak ekler: numara `nextNewStopId` ile üretilir, durak taslağa yazılır
+   * (geri alınabilir, Kaydet ile sunucuya gider). Eklenen durağın id'sini döner; aralık dolduysa null.
+   */
+  addStop: (stopName: string, lat: number, lon: number, locationType: number) => string | null;
+  /**
+   * Bu tarayıcıda verilen son yeni durak numarası. Geri alma numarayı geri vermez; böylece aynı numara
+   * iki farklı durağa verilmez (persist edilir).
+   */
+  lastNewStopNumber: number;
   resetDraft: () => void;
   /**
    * Kaydın son adımı (bkz. `saveAll`): sunucunun güncel durak verisini yazar ve
@@ -122,6 +132,25 @@ function isSameEntry(a: DraftStop | undefined, b: DraftStop | undefined): boolea
   return isSameStopData(a, b);
 }
 
+// ---- Yeni (test) durak numaraları: 5XXXX, bu tarayıcıda artarak verilir ----
+const NEW_STOP_MIN = 50001;
+const NEW_STOP_MAX = 59999;
+const NEW_STOP_ID = /^5\d{4}$/;
+
+/**
+ * Sıradaki yeni durak numarası: bu tarayıcıda verilen son numara ile yayında / taslakta görülen en büyük
+ * 5XXXX numaradan büyük olanın bir fazlası. Aralık dolduysa null.
+ */
+export function nextNewStopId(
+  state: Pick<StopDraftState, 'published' | 'draft' | 'lastNewStopNumber'>
+): string | null {
+  let max = Math.max(state.lastNewStopNumber, NEW_STOP_MIN - 1);
+  for (const stopId of [...Object.keys(state.published), ...Object.keys(state.draft)]) {
+    if (NEW_STOP_ID.test(stopId)) max = Math.max(max, Number(stopId));
+  }
+  return max + 1 <= NEW_STOP_MAX ? String(max + 1) : null;
+}
+
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
@@ -153,6 +182,7 @@ export const useStopDraftStore = create<StopDraftState>()(
         status: 'idle',
         error: null,
         affectedRoutes: {},
+        lastNewStopNumber: 0,
 
         loadStops: async () => {
           set({ status: 'loading', error: null });
@@ -199,6 +229,18 @@ export const useStopDraftStore = create<StopDraftState>()(
           const current = entry && !isDeletedStop(entry) ? entry : published[stopId];
           if (!current) return;
           commit({ ...draft, [stopId]: { ...current, lat, lon } });
+        },
+
+        addStop: (stopName, lat, lon, locationType) => {
+          if (get().status === 'saving') return null;
+          const stopId = nextNewStopId(get());
+          if (stopId === null) {
+            set({ error: `Yeni durak numaraları (${NEW_STOP_MIN}–${NEW_STOP_MAX}) doldu` });
+            return null;
+          }
+          set({ lastNewStopNumber: Number(stopId) });
+          commit({ ...get().draft, [stopId]: { stopId, stopName, lat, lon, locationType } });
+          return stopId;
         },
 
         resetDraft: () => commit({}),
@@ -250,6 +292,7 @@ export const useStopDraftStore = create<StopDraftState>()(
       partialize: (state) => ({
         draft: state.draft,
         affectedRoutes: state.affectedRoutes,
+        lastNewStopNumber: state.lastNewStopNumber,
       }),
     }
   )

@@ -6,17 +6,19 @@ import {
   CITY_STOP_CANVAS_STYLE,
   TERMINAL_STOP_CANVAS_STYLE,
   MOVED_STOP_CANVAS_STYLE,
+  NEW_STOP_CANVAS_STYLE,
   PUBLISHED_GHOST_STOP_STYLE,
 } from './mapStyles';
 import { createBlinkRingIcon, createCityStopIcon } from './markerFactory';
 import { isDeletedStop, isTerminalStop, type Stop } from '../../model';
 
-type StopStyleKey = 'normal' | 'terminal' | 'moved';
+type StopStyleKey = 'normal' | 'terminal' | 'moved' | 'new';
 
 const STYLES: Record<StopStyleKey, L.CircleMarkerOptions> = {
   normal: CITY_STOP_CANVAS_STYLE,
   terminal: TERMINAL_STOP_CANVAS_STYLE,
   moved: MOVED_STOP_CANVAS_STYLE,
+  new: NEW_STOP_CANVAS_STYLE,
 };
 
 interface StopMarkerOptions extends L.CircleMarkerOptions {
@@ -269,6 +271,7 @@ export function useStopsMapSync(map: L.Map | null): void {
         `<div style="font-family: sans-serif; font-size: 11px;">
           <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
           ${styleKey === 'moved' ? '<span style="color: #f59e0b; font-weight: 600;"> (Taşındı)</span>' : ''}
+          ${styleKey === 'new' ? '<span style="color: #16a34a; font-weight: 600;"> (Yeni)</span>' : ''}
           <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">Taşımak için tıklayın</div>
         </div>`
       );
@@ -380,7 +383,8 @@ export function useStopsMapSync(map: L.Map | null): void {
       visibleIds.add(stop.stopId);
       const original = published[stop.stopId];
       const moved = isMovedFromPublished(stop, original);
-      const styleKey: StopStyleKey = moved ? 'moved' : isTerminalStop(stop) ? 'terminal' : 'normal';
+      // Yayında hiç olmayan durak haritadan eklenmiş yenidir
+      const styleKey: StopStyleKey = !original ? 'new' : moved ? 'moved' : isTerminalStop(stop) ? 'terminal' : 'normal';
 
       const entry = markers.get(stop.stopId);
       if (!entry) {

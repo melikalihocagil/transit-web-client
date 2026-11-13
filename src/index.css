@@ -1,6 +1,44 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
+/*
+ * Harita arayüzü yazı ölçeği (noktalar ve çizgiler hariç): baloncuklar, form, kontroller.
+ * Okunabilirlik için tek yerden ayarlanır.
+ */
+:root {
+  --map-ui-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --map-ui-font: 13px;
+  --map-ui-font-sub: 12px;
+  --map-ui-font-kbd: 11.5px;
+}
+
+/* Leaflet'in varsayılanı 12px: katman seçici, popup ve baloncukların taban yazısı */
+.leaflet-container {
+  font-family: var(--map-ui-family);
+  font-size: var(--map-ui-font);
+}
+
+.leaflet-container .leaflet-control-attribution {
+  font-size: 12px;
+}
+
+.leaflet-tooltip {
+  padding: 7px 10px;
+}
+
+/* Durak, hat pini, bacak ve via baloncukları */
+.map-tip {
+  font: var(--map-ui-font) / 1.45 var(--map-ui-family);
+}
+
+.map-tip-sub {
+  font-size: var(--map-ui-font-sub);
+}
+
+div.map-tip-sub {
+  margin-top: 3px;
+}
+
 html,
 body,
 #root {
@@ -32,4 +70,226 @@ body,
     opacity: 0.1;
     transform: scale(1.35);
   }
+}
+
+/* ---- Haritadan durak ekleme (bkz. useAddStopMode) ---- */
+/* Katman seçicinin solunda, aynı satırda (Leaflet köşe kontrollerini alt alta dizer; bu düğme dizilmez) */
+.leaflet-right .leaflet-control.transit-add-stop-control {
+  clear: none;
+}
+
+/* Katman seçicinin düğmesiyle aynı ölçüde kare ikon (leaflet-touch: 44 px, diğerleri: 36 px) */
+.transit-add-stop-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.leaflet-touch .transit-add-stop-button {
+  width: 44px;
+  height: 44px;
+}
+
+.transit-add-stop-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.transit-add-stop-button:hover {
+  background: #f4f4f4;
+  color: #15803d;
+}
+
+.transit-add-stop-button:focus-visible {
+  outline: 2px solid #22c55e;
+  outline-offset: 2px;
+}
+
+.transit-add-stop-button.is-active {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+/* Baloncuk: düğmenin üstünde, sağa hizalı (harita kenarından taşmaz) */
+.transit-add-stop-tip {
+  position: absolute;
+  right: -2px;
+  bottom: calc(100% + 10px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #ffffff;
+  font: 600 var(--map-ui-font)/1 var(--map-ui-family);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3);
+  pointer-events: none;
+  opacity: 0;
+  translate: 0 4px;
+  transition: opacity 0.12s, translate 0.12s;
+}
+
+.transit-add-stop-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 16px;
+  border: 6px solid transparent;
+  border-top-color: rgba(15, 23, 42, 0.92);
+}
+
+.leaflet-touch .transit-add-stop-tip::after {
+  right: 20px;
+}
+
+.transit-add-stop-button:hover .transit-add-stop-tip,
+.transit-add-stop-button:focus-visible .transit-add-stop-tip,
+.transit-add-stop-button.is-active .transit-add-stop-tip {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.transit-add-stop-button.is-active .transit-add-stop-tip {
+  background: #15803d;
+}
+
+.transit-add-stop-button.is-active .transit-add-stop-tip::after {
+  border-top-color: #15803d;
+}
+
+.transit-add-stop-kbd {
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  font: 600 var(--map-ui-font-kbd)/1 ui-monospace, monospace;
+}
+
+/* Mod açıkken imleç artı; hat ve durak katmanları tıklama almaz, tıklama haritaya düşer */
+.transit-adding-stop,
+.transit-adding-stop .leaflet-interactive,
+.transit-adding-stop .leaflet-grab {
+  cursor: crosshair !important;
+}
+
+.transit-adding-stop .leaflet-city-stops-pane-pane,
+.transit-adding-stop .leaflet-city-stops-pane-pane *,
+.transit-adding-stop .leaflet-draft-line-pane-pane,
+.transit-adding-stop .leaflet-draft-line-pane-pane *,
+.transit-adding-stop .leaflet-draft-stops-pane-pane,
+.transit-adding-stop .leaflet-draft-stops-pane-pane *,
+.transit-adding-stop .leaflet-draft-vias-pane-pane,
+.transit-adding-stop .leaflet-draft-vias-pane-pane * {
+  pointer-events: none !important;
+}
+
+.transit-add-stop-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 250px;
+  font: var(--map-ui-font) var(--map-ui-family);
+  color: #1e293b;
+}
+
+.transit-add-stop-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.transit-add-stop-form input,
+.transit-add-stop-form select {
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font: var(--map-ui-font) var(--map-ui-family);
+  color: #0f172a;
+}
+
+.transit-add-stop-title strong {
+  color: #16a34a;
+}
+
+.transit-add-stop-coords {
+  font: var(--map-ui-font-sub) ui-monospace, monospace;
+  color: #94a3b8;
+}
+
+.transit-add-stop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.transit-add-stop-actions button {
+  padding: 6px 14px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font: 600 var(--map-ui-font) var(--map-ui-family);
+  cursor: pointer;
+}
+
+.transit-add-stop-actions button[type='submit'] {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.transit-add-stop-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.transit-add-stop-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+/* ---- Kaydırma çubukları: koyu arayüzle uyumlu, ince ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent; /* slate-700 tutamaç, şeffaf iz */
+}
+
+*:hover {
+  scrollbar-color: #475569 transparent; /* slate-600 */
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: #334155 padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569 padding-box;
+}
+
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-corner {
+  display: none;
+  background: transparent;
 }

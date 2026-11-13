@@ -41,9 +41,9 @@ const StopDraftToolbar: React.FC = () => {
   const canSave = status === 'idle' && (canUndo || hasUnsavedRoutes);
 
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 text-sm">
       {error && (
-        <span className="text-rose-400 max-w-64 truncate" title={error}>
+        <span className="text-rose-400 max-w-80 truncate" title={error}>
           {error}
         </span>
       )}
@@ -60,10 +60,10 @@ const StopDraftToolbar: React.FC = () => {
 
       <div className="flex items-center bg-slate-800/80 rounded border border-slate-700/60 p-0.5">
         <button type="button" onClick={undo} disabled={!canUndo || isSaving} className={iconButton} title="Geri Al (Ctrl+Z)">
-          <Undo2 className="w-3.5 h-3.5" />
+          <Undo2 className="w-4 h-4" />
         </button>
         <button type="button" onClick={redo} disabled={!canRedo || isSaving} className={iconButton} title="İleri Al (Ctrl+Y / Ctrl+Shift+Z)">
-          <Redo2 className="w-3.5 h-3.5" />
+          <Redo2 className="w-4 h-4" />
         </button>
         <button
           type="button"
@@ -72,7 +72,7 @@ const StopDraftToolbar: React.FC = () => {
           className={iconButton}
           title="Tüm durak değişikliklerini geri al (Ctrl+Z ile geri getirilebilir)"
         >
-          <RotateCcw className="w-3.5 h-3.5" />
+          <RotateCcw className="w-4 h-4" />
         </button>
       </div>
 
@@ -83,7 +83,7 @@ const StopDraftToolbar: React.FC = () => {
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-30 disabled:hover:bg-blue-600 disabled:cursor-not-allowed transition-colors cursor-pointer"
         title="Durak ve hat taslaklarını sunucuya kaydet"
       >
-        {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
         Kaydet
       </button>
 
@@ -94,15 +94,15 @@ const StopDraftToolbar: React.FC = () => {
 
 export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => {
   return (
-    <header className="h-12 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-20 shrink-0">
+    <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-20 shrink-0">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-          <Layers className="w-4 h-4 text-blue-400" />
+        <div className="w-10 h-10 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+          <Layers className="w-5 h-5 text-blue-400" />
         </div>
         <div>
-          <h1 className="text-sm font-semibold tracking-tight text-white">Transit Route Studio</h1>
+          <h1 className="text-base font-semibold tracking-tight text-white">Transit Route Studio</h1>
         </div>
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium border border-blue-500/20">
+        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium border border-blue-500/20">
           Admin Client
         </span>
       </div>
@@ -110,8 +110,8 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
       <div className="flex items-center gap-3">
         <StopDraftToolbar />
 
-        <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
-          <User className="w-3.5 h-3.5 text-blue-400" />
+        <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-sm text-slate-300">
+          <User className="w-4 h-4 text-blue-400" />
           <span className="text-slate-400">Operatör:</span>
           <span className="font-medium text-slate-200">{operatorId}</span>
         </div>

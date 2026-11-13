@@ -62,10 +62,10 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors cursor-pointer py-1 px-1.5 rounded hover:bg-slate-800"
+          className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors cursor-pointer py-1 px-1.5 rounded hover:bg-slate-800"
           title="Hat kataloğuna geri dön"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <ArrowLeft className="w-4 h-4" />
           <span className="font-medium">Katalog</span>
         </button>
 
@@ -80,7 +80,7 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
               className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
               title="Geri Al (Ctrl+Z)"
             >
-              <Undo2 className="w-3.5 h-3.5" />
+              <Undo2 className="w-4 h-4" />
             </button>
             <button
               type="button"
@@ -89,32 +89,32 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
               className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
               title="Yinele (Ctrl+Y / Ctrl+Shift+Z)"
             >
-              <Redo2 className="w-3.5 h-3.5" />
+              <Redo2 className="w-4 h-4" />
             </button>
           </div>
 
           {isRouting ? (
-            <span className="flex items-center gap-1 text-[11px] text-blue-400 font-medium">
-              <Loader2 className="w-3 h-3 animate-spin" />
+            <span className="flex items-center gap-1 text-[13px] text-blue-400 font-medium">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
               OSRM
             </span>
           ) : isDirty ? (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <span className="text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
                 Taslak
               </span>
               <button
                 type="button"
                 onClick={onResetToPublished}
-                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                className="flex items-center gap-1 text-[13px] text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
                 title="Tüm değişiklikleri geri al ve yayınlanan sürüme dön"
               >
-                <RotateCcw className="w-3 h-3" />
+                <RotateCcw className="w-3.5 h-3.5" />
                 <span>Sıfırla</span>
               </button>
             </div>
           ) : (
-            <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               Yayınlanan
             </span>
           )}
@@ -126,18 +126,18 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
         <div className="flex items-center gap-2">
           <span
             style={{ backgroundColor: badgeBg, color: badgeText }}
-            className="px-2 py-0.5 rounded font-mono font-bold text-xs shadow-xs"
+            className="px-2 py-0.5 rounded font-mono font-bold text-sm shadow-xs"
           >
             {routeInfo?.routeShortName ?? routeId}
           </span>
-          <span className="text-xs font-semibold text-slate-100 truncate">
+          <span className="text-sm font-semibold text-slate-100 truncate">
             {routeInfo?.routeLongName ?? `Hat ${routeId}`}
           </span>
         </div>
 
         {routeInfo?.tripHeadsign && (
-          <div className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
-            <Compass className="w-3 h-3 text-slate-500 shrink-0" />
+          <div className="text-[13px] text-slate-400 flex items-center gap-1 font-mono">
+            <Compass className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <span className="truncate">{routeInfo.tripHeadsign}</span>
           </div>
         )}
@@ -145,8 +145,8 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
 
       {/* 2.1. Etkilenen Hat Bilgilendirme Rozeti / Uyarısı */}
       {isAffected && (
-        <div className="p-2 rounded-lg bg-amber-950/40 border border-amber-500/40 flex items-start gap-2 text-[11px] text-amber-200">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+        <div className="p-2 rounded-lg bg-amber-950/40 border border-amber-500/40 flex items-start gap-2 text-[13px] text-amber-200">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="leading-tight">
             <strong className="text-amber-300">Etkilenen Hat:</strong> Taşınan bir ortak durak nedeniyle bu hattın OSRM güzergahı etkilendi. Değişiklikleri inceleyip taslağınızı kaydedebilirsiniz.
           </div>
@@ -154,10 +154,10 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
       )}
 
       {/* 3. İstatistik Şeridi: Durak Sayısı, Via Sayısı, Mesafe ve Süre */}
-      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[13px] text-slate-400 font-mono">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1" title="Toplam Durak Sayısı">
-            <MapPin className="w-3 h-3 text-blue-400" />
+            <MapPin className="w-3.5 h-3.5 text-blue-400" />
             <strong className="text-slate-200">{stopCount}</strong> durak
           </span>
 
@@ -171,12 +171,12 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
         {navigation && !isLoading && (
           <div className="flex items-center gap-2 text-slate-400">
             <span className="flex items-center gap-1" title="Güzergah Mesafesi">
-              <Navigation className="w-3 h-3 text-slate-500" />
+              <Navigation className="w-3.5 h-3.5 text-slate-500" />
               {formatDistance(navigation.distance)}
             </span>
             <span>&bull;</span>
             <span className="flex items-center gap-1" title="Tahmini Seyahat Süresi">
-              <Clock className="w-3 h-3 text-slate-500" />
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
               {formatDuration(navigation.duration)}
             </span>
           </div>

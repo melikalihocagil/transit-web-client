@@ -67,9 +67,9 @@ export const SortableStopList: React.FC<SortableStopListProps> = ({
   if (stops.length === 0) {
     return (
       <div className="flex-1 p-4 flex flex-col items-center justify-center text-center text-slate-500">
-        <MapPin className="w-8 h-8 mb-2 stroke-1 text-slate-600" />
-        <p className="text-xs font-medium text-slate-400">Bu hatta ait durak bulunamadı</p>
-        <p className="text-[11px] text-slate-600 mt-1">Haritadan durak ekleyebilirsiniz</p>
+        <MapPin className="w-10 h-10 mb-2 stroke-1 text-slate-600" />
+        <p className="text-sm font-medium text-slate-400">Bu hatta ait durak bulunamadı</p>
+        <p className="text-[13px] text-slate-600 mt-1">Haritadan durak ekleyebilirsiniz</p>
       </div>
     );
   }
@@ -78,7 +78,7 @@ export const SortableStopList: React.FC<SortableStopListProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto p-3 flex flex-col">
-      <div className="text-[10px] uppercase font-mono tracking-wider text-slate-500 px-1 pb-2 flex items-center justify-between">
+      <div className="text-xs uppercase font-mono tracking-wider text-slate-500 px-1 pb-2 flex items-center justify-between">
         <span>Güzergah Durak Sırası</span>
         <span className="text-slate-600">Sürükle-Bırak</span>
       </div>
@@ -123,7 +123,7 @@ export const SortableStopList: React.FC<SortableStopListProps> = ({
 
                   {/* Bir sonraki durağa kadar aradaki tüm bacakların toplamı */}
                   {segmentTotal && (
-                    <div className="ml-4 pl-4 py-0.5 border-l-2 border-dotted border-slate-700 text-[10px] font-mono text-slate-500">
+                    <div className="ml-4 pl-4 py-0.5 border-l-2 border-dotted border-slate-700 text-xs font-mono text-slate-500">
                       {formatDistance(segmentTotal.distance)} &middot; {formatDuration(segmentTotal.duration)}
                     </div>
                   )}
@@ -135,8 +135,8 @@ export const SortableStopList: React.FC<SortableStopListProps> = ({
       </DndContext>
 
       {!canRemove && (
-        <div className="mt-3 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-400 flex items-center gap-1.5">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+        <div className="mt-3 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-[13px] text-amber-400 flex items-center gap-1.5">
+          <AlertCircle className="w-4 h-4 shrink-0" />
           <span>Güzergah geçerliliği için en az 2 durak bulunmalıdır.</span>
         </div>
       )}

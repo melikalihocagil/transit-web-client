@@ -6,6 +6,8 @@ import {
   DEFAULT_MAP_ZOOM,
 } from './mapConfig';
 import { initializeMapPanes } from './mapPanes';
+import { addBasemap } from './basemap';
+import { useAddStopMode } from './useAddStopMode';
 import { useStopsMapSync } from './useStopsMapSync';
 import { useRouteMapSync } from './useRouteMapSync';
 import { MAP_FOCUS_EVENT, type MapFocusDetail } from './mapEvents';
@@ -30,12 +32,8 @@ export const GisMapCanvas: React.FC = () => {
     // 1. Özel Katman Düzlemlerini (Custom Panes) Başlat
     initializeMapPanes(map);
 
-    // 2. Esri Light Gray Altlığını Ekle
-    L.tileLayer(ESRI_LIGHT_GRAY_TILE.url, {
-      attribution: ESRI_LIGHT_GRAY_TILE.attribution,
-      maxZoom: ESRI_LIGHT_GRAY_TILE.maxZoom,
-      maxNativeZoom: ESRI_LIGHT_GRAY_TILE.maxNativeZoom,
-    }).addTo(map);
+    // 2. Altlık: OSRM ile aynı veriden üretilen yerel OSM altlığı (yoksa Esri gri)
+    const removeBasemap = addBasemap(map);
 
     // 3. Zoom Kontrollerini Sağ Üste Al
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -48,6 +46,7 @@ export const GisMapCanvas: React.FC = () => {
 
     return () => {
       window.clearTimeout(resizeTimer);
+      removeBasemap();
       map.remove();
       setMapInstance(null);
     };
@@ -56,6 +55,7 @@ export const GisMapCanvas: React.FC = () => {
   // 4. Adaptör Hook'ları: Haritayı Zustand Store'larıyla Konuştur (Imperative Adapter)
   useStopsMapSync(mapInstance);
   useRouteMapSync(mapInstance);
+  useAddStopMode(mapInstance);
 
   // 5. Harita Odaklanma Olayı Dinleyicisi
   useEffect(() => {
