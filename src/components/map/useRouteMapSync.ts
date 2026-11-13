@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { useRouteStore, useStopDraftStore, selectEffectiveStops, selectActiveDraft } from '../../store';
+import {
+  useRouteStore,
+  useStopDraftStore,
+  useActiveRoute,
+  useMapHighlightStore,
+  selectEffectiveStops,
+} from '../../store';
 import { MAP_PANES } from './mapPanes';
 import {
   PUBLISHED_LINE_STYLE,
@@ -10,8 +16,8 @@ import {
 } from './mapStyles';
 import {
   createRouteStopIcon,
-  createViaHandleIcon,
   createGhostStopIcon,
+  createViaHandleIcon,
   createLineDragHandleIcon,
 } from './markerFactory';
 import {
@@ -68,8 +74,9 @@ function findSnapStop(map: L.Map, latlng: L.LatLng): Stop | null {
  * Aktif seçili hattın published ve draft katmanlarını haritayla senkronize eden adaptör hook.
  *
  * Kurallar:
- * 1. published: Alt katmanda kesikli gri referans çizgisi ve hayalet duraklar.
- * 2. draft: Üst katmanda canlı mavi çalışma çizgisi, sürüklenebilir durak pinleri ve via tutamaçları.
+ * 1. published: Alt katmanda kesikli gri referans çizgisi. Durak hayaletleri yalnızca durak katmanında çizilir.
+ * 2. Aktif hat: Üst katmanda canlı mavi çalışma çizgisi, sürüklenebilir durak pinleri ve via tutamaçları.
+ *    Pin konumu durak store'undan gelir; pini taşımak durağın kendisini taşır (moveStop).
  * 3. Bacaklar: Navigasyon bacakları duraklar + via'larla eşleşiyorsa her bacak ayrı çizilir;
  *    tıklanan/sürüklenen bacağın durak çifti ve via sırası kesin olarak bilinir (locateLegs).
  * 4. Çizgi Tıklaması/Sürüklemesi: Bacağa yeni via eklenir (addViaIntent) ya da yakındaki
@@ -79,10 +86,9 @@ function findSnapStop(map: L.Map, latlng: L.LatLng): Stop | null {
 export function useRouteMapSync(map: L.Map | null): void {
   const routeId = useRouteStore((state) => state.routeId);
   const published = useRouteStore((state) => state.published);
-  const draft = useRouteStore(selectActiveDraft);
+  const activeRoute = useActiveRoute();
   const isRouting = useRouteStore((state) => state.isRouting);
 
-  const moveDraftStopIntent = useRouteStore((state) => state.moveDraftStopIntent);
   const addStopIntent = useRouteStore((state) => state.addStopIntent);
   const addViaIntent = useRouteStore((state) => state.addViaIntent);
   const moveViaIntent = useRouteStore((state) => state.moveViaIntent);
@@ -93,7 +99,6 @@ export function useRouteMapSync(map: L.Map | null): void {
   const draftLineGroupRef = useRef<L.LayerGroup | null>(null);
   const draftStopsGroupRef = useRef<L.LayerGroup | null>(null);
   const draftViasGroupRef = useRef<L.LayerGroup | null>(null);
-  const ghostStopsGroupRef = useRef<L.LayerGroup | null>(null);
   const lastFittedRouteIdRef = useRef<string | null>(null);
 
   // 1. Katman gruplarını başlat ve haritaya ekle
@@ -102,26 +107,22 @@ export function useRouteMapSync(map: L.Map | null): void {
 
     const pubLineGroup = L.layerGroup([], { pane: MAP_PANES.PUBLISHED_LINE }).addTo(map);
     const draftLineGroup = L.layerGroup([], { pane: MAP_PANES.DRAFT_LINE }).addTo(map);
-    const ghostGroup = L.layerGroup([], { pane: MAP_PANES.PUBLISHED_STOPS }).addTo(map);
     const draftStopsGroup = L.layerGroup([], { pane: MAP_PANES.DRAFT_STOPS }).addTo(map);
     const draftViasGroup = L.layerGroup([], { pane: MAP_PANES.DRAFT_VIAS }).addTo(map);
 
     publishedLineGroupRef.current = pubLineGroup;
     draftLineGroupRef.current = draftLineGroup;
-    ghostStopsGroupRef.current = ghostGroup;
     draftStopsGroupRef.current = draftStopsGroup;
     draftViasGroupRef.current = draftViasGroup;
 
     return () => {
       pubLineGroup.remove();
       draftLineGroup.remove();
-      ghostGroup.remove();
       draftStopsGroup.remove();
       draftViasGroup.remove();
 
       publishedLineGroupRef.current = null;
       draftLineGroupRef.current = null;
-      ghostStopsGroupRef.current = null;
       draftStopsGroupRef.current = null;
       draftViasGroupRef.current = null;
     };
@@ -131,17 +132,15 @@ export function useRouteMapSync(map: L.Map | null): void {
   useEffect(() => {
     const pubLineGroup = publishedLineGroupRef.current;
     const draftLineGroup = draftLineGroupRef.current;
-    const ghostGroup = ghostStopsGroupRef.current;
     const draftStopsGroup = draftStopsGroupRef.current;
     const draftViasGroup = draftViasGroupRef.current;
 
-    if (!map || !pubLineGroup || !draftLineGroup || !ghostGroup || !draftStopsGroup || !draftViasGroup) {
+    if (!map || !pubLineGroup || !draftLineGroup || !draftStopsGroup || !draftViasGroup) {
       return;
     }
 
     pubLineGroup.clearLayers();
     draftLineGroup.clearLayers();
-    ghostGroup.clearLayers();
     draftStopsGroup.clearLayers();
     draftViasGroup.clearLayers();
 
@@ -194,9 +193,7 @@ export function useRouteMapSync(map: L.Map | null): void {
       }
     }
 
-    // --- B) Üst Katman: DRAFT (Aktif Tezgah) ---
-    // Eğer draft henüz oluşmamışsa Copy-on-Write kuralı gereği published'ı referans al
-    const activeRoute = draft ?? published;
+    // --- B) Üst Katman: Aktif hat (sıra: taslak ?? yayındaki; konumlar durak store'undan) ---
     if (!activeRoute) return cleanup;
 
     // Hat ilk seçildiğinde veya değiştiğinde haritayı hattın sınırlarına sığdır
@@ -360,22 +357,6 @@ export function useRouteMapSync(map: L.Map | null): void {
       });
     }
 
-    // 2. Published ile Draft Durakları Arasındaki Sapmalar (Hayalet Pinler)
-    if (published && draft) {
-      const publishedMap = new Map(published.stops.map((s) => [s.stopId, s]));
-      draft.stops.forEach((draftStop, index) => {
-        const orig = publishedMap.get(draftStop.stopId);
-        if (orig && (orig.lat !== draftStop.lat || orig.lon !== draftStop.lon)) {
-          const ghost = L.marker([orig.lat, orig.lon], {
-            icon: createGhostStopIcon(index + 1),
-            pane: MAP_PANES.PUBLISHED_STOPS,
-            interactive: false,
-          });
-          ghostGroup.addLayer(ghost);
-        }
-      });
-    }
-
     // 3. Aktif Hat Durak Pinleri (Sürüklenebilir)
     activeRoute.stops.forEach((stop, index) => {
       const isTerminal = isTerminalStop(stop);
@@ -392,10 +373,25 @@ export function useRouteMapSync(map: L.Map | null): void {
         { direction: 'top', offset: [0, -12] }
       );
 
+      // Üzerine gelince aynı id'li hayalet ve şehir noktası yanıp söner (durak katmanı çizer)
+      const { setHighlightedStopId, setDraggingStopId } = useMapHighlightStore.getState();
+      marker.on('mouseover', () => setHighlightedStopId(stop.stopId));
+      marker.on('mouseout', () => setHighlightedStopId(null));
+
+      // Sürükleme boyunca baloncuk ve yanıp sönme gösterilmez; durak katmanı şehir noktasını gizleyip
+      // published konumunu hayalet olarak gösterir
+      marker.on('dragstart', () => {
+        marker.unbindTooltip();
+        setHighlightedStopId(null);
+        setDraggingStopId(stop.stopId);
+      });
+
+      // Pin durağın kendisidir: taşımak durak taslağına yazar (hayalet, etkilenen hatlar, diğer hatlar, geri al)
       marker.on('dragend', (e) => {
         const target = e.target as L.Marker;
         const { lat, lng } = target.getLatLng();
-        moveDraftStopIntent(stop.stopId, lat, lng);
+        setDraggingStopId(null);
+        useStopDraftStore.getState().moveStop(stop.stopId, lat, lng);
       });
 
       draftStopsGroup.addLayer(marker);
@@ -446,13 +442,42 @@ export function useRouteMapSync(map: L.Map | null): void {
     map,
     routeId,
     published,
-    draft,
+    activeRoute,
     isRouting,
-    moveDraftStopIntent,
     addStopIntent,
     addViaIntent,
     moveViaIntent,
     removeViaIntent,
     snapViaIntent,
   ]);
+
+  // 3. Seçili hattın numaralı hayaletleri. Hayaletin varlığı durak store'undan gelir (draft konumu
+  // published'dan farklı ya da durak şu an sürükleniyor); hat katmanı yalnızca sıra numarasını ekler.
+  // Ayrı effect'tir: sürükleme durumu değişince hat pinleri yeniden kurulmaz (sürükleme kopmaz).
+  const publishedStops = useStopDraftStore((state) => state.published);
+  const draggingStopId = useMapHighlightStore((state) => state.draggingStopId);
+
+  useEffect(() => {
+    if (!map || !routeId) return;
+    const group = L.layerGroup([], { pane: MAP_PANES.PUBLISHED_STOPS }).addTo(map);
+
+    activeRoute?.stops.forEach((stop, index) => {
+      const original = publishedStops[stop.stopId];
+      if (!original) return;
+      const moved = original.lat !== stop.lat || original.lon !== stop.lon;
+      if (!moved && stop.stopId !== draggingStopId) return;
+      group.addLayer(
+        L.marker([original.lat, original.lon], {
+          icon: createGhostStopIcon(index + 1),
+          pane: MAP_PANES.PUBLISHED_STOPS,
+          interactive: false,
+          keyboard: false,
+        })
+      );
+    });
+
+    return () => {
+      group.remove();
+    };
+  }, [map, routeId, activeRoute, publishedStops, draggingStopId]);
 }

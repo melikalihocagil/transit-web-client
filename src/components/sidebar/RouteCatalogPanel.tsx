@@ -3,8 +3,8 @@ import { Route as RouteIcon, Loader2, AlertTriangle } from 'lucide-react';
 import {
   useRouteStore,
   useStopDraftStore,
+  useActiveRoute,
   selectIsRouteDirty,
-  selectActiveDraft,
   selectAffectedRouteIds,
 } from '../../store';
 import { useRoutesQuery } from '../../api';
@@ -27,9 +27,9 @@ export const RouteCatalogPanel: React.FC = () => {
 
   // 2. Operatör Çalışma Tezgahı Durumu (Zustand Store)
   const routeId = useRouteStore((state) => state.routeId);
-  const draft = useRouteStore(selectActiveDraft);
   const drafts = useRouteStore((state) => state.drafts);
-  const published = useRouteStore((state) => state.published);
+  // Seçili hat: sıra (taslak ?? yayındaki) + durak store'undan çözümlenmiş konumlar
+  const activeRoute = useActiveRoute();
   const isRouting = useRouteStore((state) => state.isRouting);
   const isLoadingRoute = useRouteStore((state) => state.isLoading);
   const isDirty = useRouteStore(selectIsRouteDirty);
@@ -47,8 +47,7 @@ export const RouteCatalogPanel: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterAffectedOnly, setFilterAffectedOnly] = useState(false);
 
-  // Aktif hat verisi ve künyesi
-  const activeRoute = draft ?? published;
+  // Aktif hat künyesi
   const activeRouteInfo = routes.find((r) => r.routeId === routeId) ?? null;
 
   // Yerel (kaydedilmemiş) taslağı olan hatlar

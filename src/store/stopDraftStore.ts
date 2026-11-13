@@ -9,6 +9,12 @@ import {
   type DraftStop,
   type Stop,
 } from '../model';
+import {
+  hasEditHistory,
+  recordEdit,
+  registerHistoryLock,
+  registerHistorySource,
+} from './editHistory';
 
 /**
  * Durak verisi iki katmandan oluşur:
@@ -25,28 +31,25 @@ export type StopDraft = Record<string, DraftStop>;
 /** Etkilenen hatlar (anahtar: routeId). Değerler sunucudaki satırla birebir; kayıtta `Object.values` gönderilir. */
 export type AffectedRoutes = Record<string, AffectedRoute>;
 
-const HISTORY_LIMIT = 50;
 const STORAGE_KEY = 'transit-stops';
 const LEGACY_STORAGE_KEY = 'transit-stops-staging';
 
 export interface StopDraftState {
   published: StopRecord;
   draft: StopDraft;
-  past: StopDraft[];
-  future: StopDraft[];
   status: 'idle' | 'loading' | 'saving';
   error: string | null;
   /** Hat → o hattın geometrisini değiştiren durak id'leri. Draft her değiştiğinde `/api/stops/move` sonucuyla güncellenir. */
   affectedRoutes: AffectedRoutes;
 
   loadStops: () => Promise<void>;
+  /** Sunucudaki etkilenen hat listesini duraklardan bağımsız çeker (yerelde liste ya da geçmiş varsa çekmez). */
+  loadAffectedRoutes: () => Promise<void>;
   moveStop: (stopId: string, lat: number, lon: number) => void;
   resetDraft: () => void;
-  undo: () => void;
-  redo: () => void;
   /**
-   * Kaydın son adımı (bkz. `saveAll`): sunucunun güncel durak verisini yazar, geçmişi temizler ve
-   * `status`'u idle'a döndürür. Silme işaretleri yerelde kalır. Hata olursa fırlatır, state'e dokunmaz.
+   * Kaydın son adımı (bkz. `saveAll`): sunucunun güncel durak verisini yazar ve
+   * `status`'u idle'a döndürür (geçmişi `saveAll` temizler). Silme işaretleri yerelde kalır. Hata olursa fırlatır, state'e dokunmaz.
    */
   finishStopSave: () => Promise<void>;
 }
@@ -133,67 +136,60 @@ try {
 export const useStopDraftStore = create<StopDraftState>()(
   persist(
     (set, get) => {
-      /** Tüm draft değişiklikleri buradan geçer: geçmişe ekler, normalize edip yazar. */
+      /** Tüm draft değişiklikleri buradan geçer: ortak geçmişe ekler, normalize edip yazar. */
       const commit = (nextDraft: StopDraft) => {
-        const { draft, past, published, status } = get();
+        const { draft, published, status } = get();
         // Kayıt sürerken draft kilitli: kayıt sonunda sunucu verisi yazılacağı için değişiklik kaybolurdu
         if (status === 'saving') return;
         const normalized = normalizeDraft(nextDraft, published);
         if (isSameDraft(draft, normalized)) return;
-        set({
-          draft: normalized,
-          past: [...past, draft].slice(-HISTORY_LIMIT),
-          future: [],
-          error: null,
-        });
+        recordEdit();
+        set({ draft: normalized, error: null });
       };
 
       return {
         published: {},
         draft: {},
-        past: [],
-        future: [],
         status: 'idle',
         error: null,
         affectedRoutes: {},
 
         loadStops: async () => {
-          // Etkilenen hatlar da durak kuralıyla yüklenir: yerel liste boş ve geçmiş yoksa sunucudaki alınır
-          const hasLocalAffected = () =>
-            Object.keys(get().affectedRoutes).length > 0 || get().past.length > 0;
-          const loadAffected = !hasLocalAffected();
-
           set({ status: 'loading', error: null });
           try {
-            const [data, affectedRows] = await Promise.all([
-              stopApi.fetchStops(),
-              loadAffected ? routeApi.fetchAffectedRoutes() : null,
-            ]);
+            const data = await stopApi.fetchStops();
             const published = toRecord(data.published);
-            const { draft, past } = get();
-            const hasLocalWork = Object.keys(draft).length > 0 || past.length > 0;
-            // Yükleme sürerken yerelde değişiklik olduysa sunucu listesi yazılmaz
-            const affected =
-              affectedRows && !hasLocalAffected()
-                ? { affectedRoutes: toAffectedRecord(affectedRows) }
-                : {};
+            const { draft } = get();
+            const hasLocalWork = Object.keys(draft).length > 0 || hasEditHistory();
 
             // Draft, `status` ile aynı set'te yazılır: subscribe bunu sunucu verisi sayar (bkz. aşağısı)
             if (hasLocalWork) {
               // Kaydedilmemiş yerel iş korunur; published'a geçmiş kayıtlar normalize ile düşer.
-              set({ published, draft: normalizeDraft(draft, published), status: 'idle', ...affected });
+              set({ published, draft: normalizeDraft(draft, published), status: 'idle' });
             } else {
               set({
                 published,
                 draft: normalizeDraft(toRecord(data.draft), published),
-                past: [],
-                future: [],
                 status: 'idle',
-                ...affected,
               });
             }
           } catch (err) {
             set({ status: 'idle', error: errorMessage(err, 'Duraklar yüklenemedi') });
+          }
+        },
+
+        loadAffectedRoutes: async () => {
+          // Durak kuralıyla aynı: yerel liste boş ve geçmiş yoksa sunucudaki alınır
+          const hasLocalAffected = () =>
+            Object.keys(get().affectedRoutes).length > 0 || hasEditHistory();
+          if (hasLocalAffected()) return;
+          try {
+            const rows = await routeApi.fetchAffectedRoutes();
+            // Yükleme sürerken yerelde değişiklik olduysa sunucu listesi yazılmaz
+            if (hasLocalAffected()) return;
+            set({ affectedRoutes: toAffectedRecord(rows) });
+          } catch (err) {
+            set({ error: errorMessage(err, 'Etkilenen hatlar yüklenemedi') });
           }
         },
 
@@ -207,26 +203,6 @@ export const useStopDraftStore = create<StopDraftState>()(
 
         resetDraft: () => commit({}),
 
-        undo: () => {
-          const { draft, past, future, published, status } = get();
-          if (past.length === 0 || status === 'saving') return;
-          set({
-            draft: normalizeDraft(past[past.length - 1], published),
-            past: past.slice(0, -1),
-            future: [draft, ...future].slice(0, HISTORY_LIMIT),
-          });
-        },
-
-        redo: () => {
-          const { draft, past, future, published, status } = get();
-          if (future.length === 0 || status === 'saving') return;
-          set({
-            draft: normalizeDraft(future[0], published),
-            past: [...past, draft].slice(-HISTORY_LIMIT),
-            future: future.slice(1),
-          });
-        },
-
         finishStopSave: async () => {
           const fresh = await stopApi.fetchStops();
           const published = toRecord(fresh.published);
@@ -238,8 +214,6 @@ export const useStopDraftStore = create<StopDraftState>()(
           set({
             published,
             draft: normalizeDraft(nextDraft, published),
-            past: [],
-            future: [],
             status: 'idle',
           });
         },
@@ -247,10 +221,15 @@ export const useStopDraftStore = create<StopDraftState>()(
     },
     {
       name: STORAGE_KEY,
-      version: 3,
+      // v4: geri al geçmişi ortak `editHistory` modülüne taşındı (past/future artık burada tutulmuyor)
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted, version) => {
-        const state = persisted as Partial<StopDraftState> & { affectedRouteIds?: unknown };
+        const state = persisted as Partial<StopDraftState> & {
+          affectedRouteIds?: unknown;
+          past?: unknown;
+          future?: unknown;
+        };
         // v1'deki düz hat listesinde durak bilgisi yoktu; taşınamaz, boş başlar
         if (version < 2) {
           delete state.affectedRouteIds;
@@ -263,17 +242,28 @@ export const useStopDraftStore = create<StopDraftState>()(
             Object.entries(legacy).map(([routeId, stopIds]) => [routeId, { routeId, stopIds }])
           );
         }
+        // v3 -> v4: eski durak geçmişi ortak geçmişe taşınamaz (hat bilgisi yok); atılır
+        delete state.past;
+        delete state.future;
         return state as StopDraftState;
       },
       partialize: (state) => ({
         draft: state.draft,
-        past: state.past,
-        future: state.future,
         affectedRoutes: state.affectedRoutes,
       }),
     }
   )
 );
+
+// ---- Ortak geçmiş: durak taslağı bu store'dan alınır / geri yüklenir ----
+registerHistorySource('stops', {
+  capture: () => useStopDraftStore.getState().draft,
+  restore: (draft) => {
+    const { published } = useStopDraftStore.getState();
+    useStopDraftStore.setState({ draft: normalizeDraft(draft, published), error: null });
+  },
+});
+registerHistoryLock(() => useStopDraftStore.getState().status === 'saving');
 
 // ---- Etkilenen hatlar: draft'ın her değişimini (taşıma, geri al, ileri al, sıfırla, yükleme) izler ----
 
@@ -323,6 +313,19 @@ useStopDraftStore.subscribe((state, prev) => {
 
 // ---- Seçiciler ----
 
+/** Bir durağın ekrandaki hali: draft ?? published. Silinmiş ya da bilinmeyen durak için undefined. */
+export function resolveStop(state: Pick<StopDraftState, 'published' | 'draft'>, stopId: string): Stop | undefined {
+  const entry = state.draft[stopId];
+  if (entry) return isDeletedStop(entry) ? undefined : entry;
+  return state.published[stopId];
+}
+
+/** Durak silinmiş mi (taslakta silme işareti var). */
+export function isStopDeleted(state: Pick<StopDraftState, 'draft'>, stopId: string): boolean {
+  const entry = state.draft[stopId];
+  return entry !== undefined && isDeletedStop(entry);
+}
+
 let effectiveCache: { published: StopRecord; draft: StopDraft; result: Stop[] } | null = null;
 
 /** Ekranda görünen duraklar: draft ?? published; silinenler hariç, yeni duraklar dahil. */
@@ -345,13 +348,6 @@ export function selectEffectiveStops(state: StopDraftState): Stop[] {
   effectiveCache = { published, draft, result };
   return result;
 }
-
-/** Kaydedilmemiş durak değişikliği var mı (geçmiş boş değilse taslak sunucudakinden farklıdır). */
-export const selectHasUnsavedStops = (state: StopDraftState): boolean => state.past.length > 0;
-
-export const selectCanUndoStops = (state: StopDraftState): boolean => state.past.length > 0;
-
-export const selectCanRedoStops = (state: StopDraftState): boolean => state.future.length > 0;
 
 export const selectStopChangeCount = (state: StopDraftState): number =>
   Object.keys(state.draft).length;

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { Route, RouteDetail } from '../../../model';
 import { formatDistance, formatDuration } from '../../../model';
-import { useRouteStore, selectCanUndo, selectCanRedo } from '../../../store';
+import { useEditHistoryStore, selectCanUndo, selectCanRedo } from '../../../store';
 
 interface RouteEditorHeaderProps {
   routeId: string;
@@ -38,10 +38,11 @@ export const RouteEditorHeader: React.FC<RouteEditorHeaderProps> = ({
   onBack,
   onResetToPublished,
 }) => {
-  const canUndo = useRouteStore(selectCanUndo);
-  const canRedo = useRouteStore(selectCanRedo);
-  const undoIntent = useRouteStore((state) => state.undoIntent);
-  const redoIntent = useRouteStore((state) => state.redoIntent);
+  // Ortak geçmiş (durak + hat düzenlemeleri)
+  const canUndo = useEditHistoryStore(selectCanUndo);
+  const canRedo = useEditHistoryStore(selectCanRedo);
+  const undoIntent = useEditHistoryStore((state) => state.undo);
+  const redoIntent = useEditHistoryStore((state) => state.redo);
 
   const badgeBg = routeInfo?.routeColor
     ? `#${routeInfo.routeColor.replace('#', '')}`

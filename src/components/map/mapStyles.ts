@@ -35,6 +35,7 @@ export const DRAFT_LINE_HIT_STYLE: L.PolylineOptions = {
 };
 
 export const CITY_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
+  opacity: 1, // Açıkça verilir: sürüklemede gizlenen nokta setStyle ile bu stile geri döner
   radius: 4,
   color: '#334155', // Slate 700
   fillColor: '#94a3b8', // Slate 400
@@ -44,6 +45,7 @@ export const CITY_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
 };
 
 export const TERMINAL_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
+  opacity: 1, // Açıkça verilir: sürüklemede gizlenen nokta setStyle ile bu stile geri döner
   radius: 6,
   color: '#78350f', // Amber 900
   fillColor: '#f59e0b', // Amber 500
@@ -53,6 +55,7 @@ export const TERMINAL_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
 };
 
 export const MOVED_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
+  opacity: 1, // Açıkça verilir: sürüklemede gizlenen nokta setStyle ile bu stile geri döner
   radius: 6,
   color: '#1d4ed8', // Blue 700
   fillColor: '#3b82f6', // Blue 500

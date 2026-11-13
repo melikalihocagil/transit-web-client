@@ -1,24 +1,22 @@
 export {
   useRouteStore,
-  selectActiveRoute,
+  useActiveRoute,
+  computeActiveRoute,
+  resolveRouteStops,
   selectActiveDraft,
   selectIsRouteDirty,
   selectUnsavedRouteIds,
   selectHasUnsavedRoutes,
   selectIsRouting,
-  selectCanUndo,
-  selectCanRedo,
   type RouteStoreState,
-  type SavedRoute,
+  type RouteDraft,
 } from './routeStore';
 
 export {
   useStopDraftStore,
   normalizeDraft,
+  resolveStop,
   selectEffectiveStops,
-  selectHasUnsavedStops,
-  selectCanUndoStops,
-  selectCanRedoStops,
   selectStopChangeCount,
   selectAffectedRouteIds,
   selectAffectedRoutes,
@@ -28,5 +26,7 @@ export {
   type StopRecord,
 } from './stopDraftStore';
 
+export { useEditHistoryStore, selectCanUndo, selectCanRedo } from './editHistory';
+export { useMapHighlightStore } from './mapHighlight';
 export { routingPipeline } from './routingPipeline';
 export { saveAll } from './saveAll';

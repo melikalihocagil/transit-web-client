@@ -10,3 +10,26 @@ body,
   padding: 0;
   overflow: hidden;
 }
+
+/* Hayalet hover'ında aynı id'li noktaları işaretleyen yanıp sönen halka (bkz. createBlinkRingIcon) */
+.transit-blink-ring {
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  border: 2.5px solid #f59e0b;
+  pointer-events: none;
+  animation: transit-blink 0.7s ease-in-out infinite;
+}
+
+@keyframes transit-blink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.1;
+    transform: scale(1.35);
+  }
+}

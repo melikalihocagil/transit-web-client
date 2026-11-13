@@ -158,3 +158,16 @@ export function createLineDragHandleIcon(): L.DivIcon {
     iconAnchor: [8, 8],
   });
 }
+
+/**
+ * Hayaletin üzerine gelindiğinde aynı id'li hayalet ve draft noktasının üzerinde yanıp sönen halka.
+ * Animasyon iç div'dedir: Leaflet konumlandırmayı dış elemanın transform'u ile yapar.
+ */
+export function createBlinkRingIcon(): L.DivIcon {
+  return L.divIcon({
+    html: '<div class="transit-blink-ring"></div>',
+    className: 'transit-blink-marker',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
+}

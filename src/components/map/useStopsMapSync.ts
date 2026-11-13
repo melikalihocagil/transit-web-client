@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { useStopDraftStore, selectEffectiveStops } from '../../store';
+import { useStopDraftStore, useMapHighlightStore, selectEffectiveStops } from '../../store';
 import { MAP_PANES } from './mapPanes';
 import {
   CITY_STOP_CANVAS_STYLE,
@@ -8,7 +8,7 @@ import {
   MOVED_STOP_CANVAS_STYLE,
   PUBLISHED_GHOST_STOP_STYLE,
 } from './mapStyles';
-import { createCityStopIcon } from './markerFactory';
+import { createBlinkRingIcon, createCityStopIcon } from './markerFactory';
 import { isDeletedStop, isTerminalStop, type Stop } from '../../model';
 
 type StopStyleKey = 'normal' | 'terminal' | 'moved';
@@ -36,6 +36,9 @@ function escapeHtml(text: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
 }
+
+/** Hayaletin üzerine gelinmiş sayılması için imlecin merkezine en fazla uzaklığı (piksel). */
+const GHOST_HOVER_RADIUS_PX = 9;
 
 function isMovedFromPublished(stop: Stop, published: Stop | undefined): boolean {
   return published !== undefined && (published.lat !== stop.lat || published.lon !== stop.lon);
@@ -67,6 +70,18 @@ export function useStopsMapSync(map: L.Map | null): void {
   const markersRef = useRef(new Map<string, MarkerEntry>());
   const ghostsRef = useRef(new Map<string, L.CircleMarker>());
   const dragHandleRef = useRef<L.Marker | null>(null);
+  /** Sürükleme önizlemesini geri alır (gizlenen noktayı gösterir, geçici hayaleti kaldırır). */
+  const endDragPreviewRef = useRef<(() => void) | null>(null);
+  /** Hayalet hover'ını (baloncuk + yanıp sönme) kapatır; veri değişince çağrılır. */
+  const clearGhostHoverRef = useRef<(() => void) | null>(null);
+
+  /** Açık tutamacı ve varsa sürükleme önizlemesini kaldırır. */
+  const removeDragHandle = () => {
+    endDragPreviewRef.current?.();
+    endDragPreviewRef.current = null;
+    dragHandleRef.current?.remove();
+    dragHandleRef.current = null;
+  };
 
   // 1. Duraklar henüz yüklenmediyse sunucudan çek
   useEffect(() => {
@@ -92,27 +107,186 @@ export function useStopsMapSync(map: L.Map | null): void {
     stopsGroupRef.current = stopsGroup;
     ghostsGroupRef.current = ghostsGroup;
 
-    const removeDragHandle = () => {
-      dragHandleRef.current?.remove();
-      dragHandleRef.current = null;
+    // ---- Tek baloncuk: durak, tutamaç ve hayalet aynı tooltip'i kullanır; üst üste iki baloncuk olmaz ----
+    const tip = L.tooltip({ direction: 'top', offset: [0, -8] });
+    let isDragging = false;
+    let hoveredGhostId: string | null = null;
+    let hoveredStopId: string | null = null;
+
+    const showTip = (latlng: L.LatLngExpression, html: string) => {
+      if (isDragging) return;
+      tip.setLatLng(latlng).setContent(html);
+      if (!map.hasLayer(tip)) tip.addTo(map);
+    };
+    const hideTip = () => {
+      tip.remove();
     };
 
-    // Tek paylaşımlı tooltip: içerik, üzerine gelinen marker'ın durağından üretilir
-    stopsGroup.bindTooltip(
-      (layer) => {
-        const entry = markers.get(stopIdOf(layer as L.Layer));
-        if (!entry) return '';
-        const { stop, styleKey } = entry;
-        return `<div style="font-family: sans-serif; font-size: 11px;">
+    // ---- Sürükleme önizlemesi ----
+    /**
+     * Aynı id'li iki nokta kuralı sürüklemede de geçerlidir: tutamaç durağın canlı (draft) konumudur,
+     * canvas'taki noktası gizlenir ve published konumu hayalet halka olarak gösterilir.
+     */
+    const startDragPreview = (stopId: string) => {
+      markers.get(stopId)?.marker.setStyle({ opacity: 0, fillOpacity: 0 });
+
+      // Durak zaten taşınmışsa hayaleti vardır; yoksa (ve published'da varsa) geçici hayalet çizilir
+      let tempGhost: L.CircleMarker | null = null;
+      const original = useStopDraftStore.getState().published[stopId];
+      if (original && !ghosts.has(stopId)) {
+        tempGhost = L.circleMarker([original.lat, original.lon], {
+          ...PUBLISHED_GHOST_STOP_STYLE,
+          renderer: ghostsRenderer,
+          interactive: false,
+        });
+        ghostsGroup.addLayer(tempGhost);
+      }
+
+      endDragPreviewRef.current = () => {
+        isDragging = false;
+        const entry = markers.get(stopId);
+        entry?.marker.setStyle(STYLES[entry.styleKey]);
+        if (tempGhost) ghostsGroup.removeLayer(tempGhost);
+      };
+    };
+
+    // ---- Yanıp sönme: hayaletin, şehir noktasının ya da hat pininin üzerine gelinince aynı id'li hayalet ve ----
+    // ---- güncel konum birlikte yanıp söner. Tek kanal: `useMapHighlightStore.highlightedStopId`.          ----
+    const setHighlight = (stopId: string | null) => {
+      useMapHighlightStore.getState().setHighlightedStopId(stopId);
+    };
+    let blinkMarkers: L.Marker[] = [];
+    const stopBlink = () => {
+      for (const m of blinkMarkers) m.remove();
+      blinkMarkers = [];
+    };
+    /** Durağın hayaleti varsa hayaleti ve draft noktasını yanıp söndürür; hayaleti yoksa (taşınmamış durak) bir şey yapmaz. */
+    const blinkPair = (stopId: string) => {
+      stopBlink();
+      if (isDragging) return;
+      const ghost = ghosts.get(stopId);
+      if (!ghost) return;
+      const latlngs = [ghost.getLatLng()];
+      const current = markers.get(stopId);
+      if (current) latlngs.push(current.marker.getLatLng());
+      // Halka hat pinlerinin de üstündeki düzlemde çizilir (pin şehir noktasını örttüğü için); etkileşimsizdir
+      blinkMarkers = latlngs.map((latlng) =>
+        L.marker(latlng, {
+          icon: createBlinkRingIcon(),
+          pane: MAP_PANES.DRAFT_VIAS,
+          interactive: false,
+          keyboard: false,
+        }).addTo(map)
+      );
+    };
+
+    const clearGhostHover = () => {
+      if (hoveredGhostId === null) return;
+      hoveredGhostId = null;
+      hideTip();
+      // Hayaletten çıkarken imleç bir durağın üzerindeyse onun baloncuğu ve vurgusu açılır
+      if (hoveredStopId !== null) {
+        showStopTip(hoveredStopId);
+        setHighlight(hoveredStopId);
+      } else {
+        setHighlight(null);
+      }
+    };
+    // Veri değişince (geri al, kayıt vb.) vurgu yeni konumlarla yeniden çizilir
+    clearGhostHoverRef.current = () => {
+      clearGhostHover();
+      const highlighted = useMapHighlightStore.getState().highlightedStopId;
+      if (highlighted !== null) blinkPair(highlighted);
+      else stopBlink();
+    };
+
+    // Vurgu kanalı: kim set ederse etsin (durak katmanı ya da hat pini) yanıp sönme burada çizilir
+    // Hat pini sürüklenirken (draggingStopId) şehir noktası gizlenir, published konumu hayalet olur
+    const unsubscribeHighlight = useMapHighlightStore.subscribe((state, prev) => {
+      if (state.draggingStopId !== prev.draggingStopId) {
+        if (prev.draggingStopId !== null) {
+          endDragPreviewRef.current?.();
+          endDragPreviewRef.current = null;
+        }
+        if (state.draggingStopId !== null) {
+          removeDragHandle();
+          isDragging = true;
+          clearGhostHover();
+          hideTip();
+          stopBlink();
+          startDragPreview(state.draggingStopId);
+        }
+      }
+      if (state.highlightedStopId === prev.highlightedStopId) return;
+      if (state.highlightedStopId !== null) blinkPair(state.highlightedStopId);
+      else stopBlink();
+    });
+
+    /** İmlecin altındaki hayaletin id'si. Hayalet düzlemi tıklamaya kapalı olduğu için piksel mesafesiyle bulunur. */
+    const findGhostAt = (point: L.Point): string | null => {
+      let found: string | null = null;
+      let best = GHOST_HOVER_RADIUS_PX;
+      for (const [stopId, ghost] of ghosts) {
+        const dist = map.latLngToContainerPoint(ghost.getLatLng()).distanceTo(point);
+        if (dist <= best) {
+          best = dist;
+          found = stopId;
+        }
+      }
+      return found;
+    };
+
+    // DOM olayı kullanılır: imleç durak canvas'ının üzerindeyken Leaflet harita `mousemove`'unu her zaman iletmiyor
+    const handleMapMouseMove = (e: MouseEvent) => {
+      if (isDragging) return;
+      const ghostId = findGhostAt(map.mouseEventToContainerPoint(e));
+      if (ghostId === hoveredGhostId) return;
+      clearGhostHover();
+      if (ghostId === null) return;
+
+      const ghost = ghosts.get(ghostId);
+      const original = useStopDraftStore.getState().published[ghostId];
+      if (!ghost || !original) return;
+      hoveredGhostId = ghostId;
+      setHighlight(ghostId);
+
+      showTip(
+        ghost.getLatLng(),
+        `<div style="font-family: sans-serif; font-size: 11px;">
+          <strong style="color: #64748b;">${escapeHtml(original.stopId)}</strong> - ${escapeHtml(original.stopName)}
+          <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">Yayındaki konum</div>
+        </div>`
+      );
+    };
+
+    // ---- Durak hover'ı ----
+    const showStopTip = (stopId: string) => {
+      const entry = markers.get(stopId);
+      if (!entry) return;
+      const { stop, styleKey } = entry;
+      showTip(
+        entry.marker.getLatLng(),
+        `<div style="font-family: sans-serif; font-size: 11px;">
           <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
           ${styleKey === 'moved' ? '<span style="color: #f59e0b; font-weight: 600;"> (Taşındı)</span>' : ''}
           <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">Taşımak için tıklayın</div>
-        </div>`;
-      },
-      { direction: 'top', offset: [0, -6] }
-    );
+        </div>`
+      );
+    };
+    const handleStopMouseOver = (e: L.LeafletMouseEvent) => {
+      hoveredStopId = stopIdOf(e.propagatedFrom as L.Layer);
+      if (hoveredGhostId !== null) return; // hayalet hover'ı öncelikli
+      showStopTip(hoveredStopId);
+      setHighlight(hoveredStopId);
+    };
+    const handleStopMouseOut = () => {
+      hoveredStopId = null;
+      if (hoveredGhostId !== null) return;
+      hideTip();
+      setHighlight(null);
+    };
 
-    // Tek click dinleyicisi: tıklanan durak için sürüklenebilir tutamaç aç
+    // ---- Tıklanan durak için sürüklenebilir tutamaç ----
     const handleStopClick = (e: L.LeafletMouseEvent) => {
       L.DomEvent.stopPropagation(e);
       const entry = markers.get(stopIdOf(e.propagatedFrom as L.Layer));
@@ -126,15 +300,24 @@ export function useStopsMapSync(map: L.Map | null): void {
         draggable: true,
       }).addTo(map);
 
-      handle
-        .bindTooltip(
-          `<div style="font-family: sans-serif; font-size: 11px;">
-            <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
-            <div style="color: #22c55e; font-size: 10px; font-weight: 600;">Yeni konuma sürükleyin</div>
-          </div>`,
-          { direction: 'top', offset: [0, -10] }
-        )
-        .openTooltip();
+      const handleTipHtml = `<div style="font-family: sans-serif; font-size: 11px;">
+          <strong style="color: #3b82f6;">${escapeHtml(stop.stopId)}</strong> - ${escapeHtml(stop.stopName)}
+          <div style="color: #22c55e; font-size: 10px; font-weight: 600;">Yeni konuma sürükleyin</div>
+        </div>`;
+      const showHandleTip = () => showTip(handle.getLatLng(), handleTipHtml);
+      showHandleTip();
+      handle.on('mouseover', showHandleTip);
+      handle.on('mouseout', hideTip);
+
+      // Sürükleme boyunca hiçbir baloncuk gösterilmez
+      handle.on('dragstart', () => {
+        isDragging = true;
+        clearGhostHover();
+        hideTip();
+        setHighlight(null);
+        stopBlink();
+        startDragPreview(stop.stopId);
+      });
 
       handle.on('dragend', () => {
         const { lat, lng } = handle.getLatLng();
@@ -145,12 +328,29 @@ export function useStopsMapSync(map: L.Map | null): void {
       dragHandleRef.current = handle;
     };
 
+    const handleMapClick = () => {
+      removeDragHandle();
+      hideTip();
+    };
+
     stopsGroup.on('click', handleStopClick);
-    map.on('click', removeDragHandle);
+    stopsGroup.on('mouseover', handleStopMouseOver);
+    stopsGroup.on('mouseout', handleStopMouseOut);
+    map.on('click', handleMapClick);
+    const container = map.getContainer();
+    L.DomEvent.on(container, 'mousemove', handleMapMouseMove as L.DomEvent.EventHandlerFn);
+    L.DomEvent.on(container, 'mouseleave', clearGhostHover);
 
     return () => {
-      map.off('click', removeDragHandle);
+      map.off('click', handleMapClick);
+      L.DomEvent.off(container, 'mousemove', handleMapMouseMove as L.DomEvent.EventHandlerFn);
+      L.DomEvent.off(container, 'mouseleave', clearGhostHover);
+      unsubscribeHighlight();
+      stopBlink();
       removeDragHandle();
+      clearGhostHover();
+      clearGhostHoverRef.current = null;
+      hideTip();
       stopsGroup.remove();
       ghostsGroup.remove();
       stopsRenderer.remove();
@@ -196,8 +396,9 @@ export function useStopsMapSync(map: L.Map | null): void {
         continue;
       }
 
-      if (entry.stop === stop) continue;
-      if (entry.stop.lat !== stop.lat || entry.stop.lon !== stop.lon) {
+      // Stil yalnızca durağa değil published'a da bağlıdır: sayfa yüklenirken taslak published'dan önce
+      // gelir, published gelince aynı durak nesnesi için de "taşındı" stili uygulanmalıdır.
+      if (entry.stop !== stop && (entry.stop.lat !== stop.lat || entry.stop.lon !== stop.lon)) {
         entry.marker.setLatLng([stop.lat, stop.lon]);
       }
       if (entry.styleKey !== styleKey) {
@@ -244,8 +445,8 @@ export function useStopsMapSync(map: L.Map | null): void {
       }
     }
 
-    // Durak verisi değiştiyse açık tutamaç artık eski konumu gösteriyor olabilir
-    dragHandleRef.current?.remove();
-    dragHandleRef.current = null;
+    // Durak verisi değiştiyse açık tutamaç ve hayalet vurgusu artık eski konumu gösteriyor olabilir
+    removeDragHandle();
+    clearGhostHoverRef.current?.();
   }, [map, published, draft, effectiveStops]);
 }

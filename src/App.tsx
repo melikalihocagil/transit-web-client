@@ -3,11 +3,11 @@ import { Header } from './components/layout/Header';
 import { StatusBar } from './components/layout/StatusBar';
 import { RouteCatalogPanel } from './components/sidebar/RouteCatalogPanel';
 import { GisMapCanvas } from './components/map/GisMapCanvas';
-import { useStopDraftStore } from './store';
+import { useEditHistoryStore } from './store';
 
 export const App: React.FC = () => {
   // Global klavye kısayolları: Ctrl+Z (geri al), Ctrl+Y / Ctrl+Shift+Z (ileri al).
-  // Şimdilik durak taslağı geçmişine bağlı; hatlar aşamasında ortak geçmişe genişletilecek.
+  // Durak ve hat düzenlemeleri tek ortak geçmişi kullanır (editHistory).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Bir input veya textarea içerisindeyken harita undo/redo'sunu çalıştırma
@@ -26,13 +26,13 @@ export const App: React.FC = () => {
         if (key === 'z') {
           e.preventDefault();
           if (e.shiftKey) {
-            useStopDraftStore.getState().redo();
+            useEditHistoryStore.getState().redo();
           } else {
-            useStopDraftStore.getState().undo();
+            useEditHistoryStore.getState().undo();
           }
         } else if (key === 'y') {
           e.preventDefault();
-          useStopDraftStore.getState().redo();
+          useEditHistoryStore.getState().redo();
         }
       }
     };

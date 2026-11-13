@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Layers, User, Undo2, Redo2, Save, RotateCcw, Loader2 } from 'lucide-react';
 import {
   useStopDraftStore,
   useRouteStore,
+  useEditHistoryStore,
   saveAll,
-  selectHasUnsavedStops,
   selectHasUnsavedRoutes,
-  selectCanUndoStops,
-  selectCanRedoStops,
+  selectCanUndo,
+  selectCanRedo,
   selectStopChangeCount,
 } from '../../store';
 import { AffectedRoutesDropdown } from './AffectedRoutesDropdown';
@@ -22,18 +22,23 @@ const iconButton =
 /** Durak taslağı araç çubuğu: değişiklik sayısı, geri al / ileri al, sıfırla; durak ve hat taslaklarını kaydet. */
 const StopDraftToolbar: React.FC = () => {
   const changeCount = useStopDraftStore(selectStopChangeCount);
-  const hasUnsavedStops = useStopDraftStore(selectHasUnsavedStops);
   const hasUnsavedRoutes = useRouteStore(selectHasUnsavedRoutes);
-  const canUndo = useStopDraftStore(selectCanUndoStops);
-  const canRedo = useStopDraftStore(selectCanRedoStops);
+  // Ortak geçmiş (durak + hat): adım varsa sunucuya yazılmamış düzenleme vardır
+  const canUndo = useEditHistoryStore(selectCanUndo);
+  const canRedo = useEditHistoryStore(selectCanRedo);
   const status = useStopDraftStore((state) => state.status);
   const error = useStopDraftStore((state) => state.error);
-  const undo = useStopDraftStore((state) => state.undo);
-  const redo = useStopDraftStore((state) => state.redo);
+  const undo = useEditHistoryStore((state) => state.undo);
+  const redo = useEditHistoryStore((state) => state.redo);
   const resetDraft = useStopDraftStore((state) => state.resetDraft);
 
+  // Etkilenen hat listesi duraklardan ayrı yüklenir
+  useEffect(() => {
+    void useStopDraftStore.getState().loadAffectedRoutes();
+  }, []);
+
   const isSaving = status === 'saving';
-  const canSave = status === 'idle' && (hasUnsavedStops || hasUnsavedRoutes);
+  const canSave = status === 'idle' && (canUndo || hasUnsavedRoutes);
 
   return (
     <div className="flex items-center gap-2 text-xs">

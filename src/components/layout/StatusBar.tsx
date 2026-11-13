@@ -4,7 +4,7 @@ import {
   useRouteStore,
   useStopDraftStore,
   selectIsRouteDirty,
-  selectActiveRoute,
+  useActiveRoute,
   selectAffectedRouteIds,
 } from '../../store';
 
@@ -22,7 +22,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   const error = useRouteStore((state) => state.error);
   const routeId = useRouteStore((state) => state.routeId);
   const isDirty = useRouteStore(selectIsRouteDirty);
-  const activeRoute = useRouteStore(selectActiveRoute);
+  const activeRoute = useActiveRoute();
   const affectedRouteIds = useStopDraftStore(selectAffectedRouteIds);
 
   // Durum Metni ve Göstergesinin Dinamik Belirlenmesi
