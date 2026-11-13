@@ -41,7 +41,7 @@ export const RouteEditorPage: React.FC = () => {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 font-sans select-none text-slate-100">
       {/* 1. Üst Bar */}
-      <Header operatorId="operator-1" />
+      <Header />
 
       {/* 2. Ana Çalışma Alanı: Sol Panel (Katalog) + Sağ Panel (Harita) */}
       <div className="flex flex-1 overflow-hidden relative">

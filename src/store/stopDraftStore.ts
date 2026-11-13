@@ -56,7 +56,11 @@ export interface StopDraftState {
    * iki farklı durağa verilmez (persist edilir).
    */
   lastNewStopNumber: number;
-  resetDraft: () => void;
+  /**
+   * Yerel çalışmayı atar, sunucudaki hale döner: durak taslağı ve etkilenen hatlar sunucudan yeniden yazılır.
+   * Geçmiş ve hat taslakları `discardLocalWork` (saveAll.ts) tarafından sıfırlanır. Hata olursa fırlatır.
+   */
+  reloadFromServer: () => Promise<void>;
   /**
    * Kaydın son adımı (bkz. `saveAll`): sunucunun güncel durak verisini yazar ve
    * `status`'u idle'a döndürür (geçmişi `saveAll` temizler). Silme işaretleri yerelde kalır. Hata olursa fırlatır, state'e dokunmaz.
@@ -243,7 +247,23 @@ export const useStopDraftStore = create<StopDraftState>()(
           return stopId;
         },
 
-        resetDraft: () => commit({}),
+        reloadFromServer: async () => {
+          set({ status: 'loading', error: null });
+          try {
+            const [data, rows] = await Promise.all([stopApi.fetchStops(), routeApi.fetchAffectedRoutes()]);
+            const published = toRecord(data.published);
+            // `status` aynı set'te idle'a döner: abonelik bunu sunucu verisi sayar, durak başına istek atmaz
+            set({
+              published,
+              draft: normalizeDraft(toRecord(data.draft), published),
+              affectedRoutes: toAffectedRecord(rows),
+              status: 'idle',
+            });
+          } catch (err) {
+            set({ status: 'idle' });
+            throw err;
+          }
+        },
 
         finishStopSave: async () => {
           const fresh = await stopApi.fetchStops();

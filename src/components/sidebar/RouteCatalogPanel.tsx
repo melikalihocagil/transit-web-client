@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Route as RouteIcon, Loader2, AlertTriangle } from 'lucide-react';
+import { Route as RouteIcon, Loader2, AlertTriangle, Info } from 'lucide-react';
 import {
   useRouteStore,
   useStopDraftStore,
   useActiveRoute,
   selectIsRouteDirty,
   selectAffectedRouteIds,
+  useCatalogRoutes,
+  useRouteInfoStore,
+  selectIsNewRoute,
 } from '../../store';
-import { useRoutesQuery } from '../../api';
 import { RouteSearchBar } from './catalog/RouteSearchBar';
 import { RouteCatalogList } from './catalog/RouteCatalogList';
 import { RouteEditorHeader } from './editor/RouteEditorHeader';
@@ -23,7 +25,7 @@ export const RouteCatalogPanel: React.FC = () => {
     isLoading: isCatalogLoading,
     error: catalogError,
     refetch: refetchRoutes,
-  } = useRoutesQuery();
+  } = useCatalogRoutes();
 
   // 2. Operatör Çalışma Tezgahı Durumu (Zustand Store)
   const routeId = useRouteStore((state) => state.routeId);
@@ -40,12 +42,14 @@ export const RouteCatalogPanel: React.FC = () => {
   const reorderStopsIntent = useRouteStore((state) => state.reorderStopsIntent);
   const removeStopIntent = useRouteStore((state) => state.removeStopIntent);
   const removeViaIntent = useRouteStore((state) => state.removeViaIntent);
-  const resetToPublishedIntent = useRouteStore((state) => state.resetToPublishedIntent);
   const clearRoute = useRouteStore((state) => state.clearRoute);
 
   // 3. Lokal UI Durumu
   const [searchQuery, setSearchQuery] = useState('');
   const [filterAffectedOnly, setFilterAffectedOnly] = useState(false);
+
+  // Yeni hat: yalnızca hat bilgisi kaydı (durak sırası sefer üzerinden tutulduğu için bu aşamada yok)
+  const isNewRoute = useRouteInfoStore((state) => (routeId === null ? false : selectIsNewRoute(state, routeId)));
 
   // Aktif hat künyesi
   const activeRouteInfo = routes.find((r) => r.routeId === routeId) ?? null;
@@ -162,7 +166,6 @@ export const RouteCatalogPanel: React.FC = () => {
             isRouting={isRouting}
             isLoading={isLoadingRoute}
             onBack={clearRoute}
-            onResetToPublished={resetToPublishedIntent}
           />
 
           {/* Durak ve Via Sıralama Listesi */}
@@ -170,6 +173,15 @@ export const RouteCatalogPanel: React.FC = () => {
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-500 gap-2">
               <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
               <span className="text-sm text-slate-400">Hat durakları yükleniyor...</span>
+            </div>
+          ) : isNewRoute ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-2">
+              <Info className="w-7 h-7 text-slate-600" />
+              <p className="text-sm text-slate-300">Bu hat yalnızca hat bilgisi olarak oluşturuldu.</p>
+              <p className="text-[13px] text-slate-500 max-w-xs">
+                Durak sırası hattın seferleri üzerinden tutulur; yeni hatta sefer olmadığı için duraklar bu aşamada
+                eklenemez.
+              </p>
             </div>
           ) : activeRoute ? (
             <SortableStopList

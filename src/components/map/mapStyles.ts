@@ -34,6 +34,10 @@ export const DRAFT_LINE_HIT_STYLE: L.PolylineOptions = {
   interactive: true,
 };
 
+// Fark baloncuğu: taslak yayındakine göre arttıysa kırmızı, azaldıysa yeşil
+export const DIFF_INCREASE_COLOR = '#ef4444'; // Red 500
+export const DIFF_DECREASE_COLOR = '#22c55e'; // Green 500
+
 export const CITY_STOP_CANVAS_STYLE: L.CircleMarkerOptions = {
   opacity: 1, // Açıkça verilir: sürüklemede gizlenen nokta setStyle ile bu stile geri döner
   radius: 4,

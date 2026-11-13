@@ -7,6 +7,7 @@ export const MAP_PANES = {
   DRAFT_LINE: 'draft-line-pane',
   DRAFT_STOPS: 'draft-stops-pane',
   DRAFT_VIAS: 'draft-vias-pane',
+  DIFF_BUBBLES: 'diff-bubbles-pane',
 } as const;
 
 /**
@@ -18,6 +19,7 @@ export const MAP_PANES = {
  * 4. draft-line-pane      (Z: 440) -> Canlı, tıklanabilir SVG çalışma çizgisi
  * 5. draft-stops-pane     (Z: 450) -> Sürüklenebilir aktif durak pinleri
  * 6. draft-vias-pane      (Z: 460) -> Sürüklenebilir ara kılavuz tutamaçları
+ * 7. diff-bubbles-pane    (Z: 470) -> Taslak/yayındaki fark baloncukları (pointer-events: none)
  */
 export function initializeMapPanes(map: L.Map): void {
   if (!map.getPane(MAP_PANES.PUBLISHED_LINE)) {
@@ -51,4 +53,9 @@ export function initializeMapPanes(map: L.Map): void {
     const pane = map.createPane(MAP_PANES.DRAFT_VIAS);
     pane.style.zIndex = '460';
   }
+
+  // Fark baloncukları bilgi amaçlıdır: altındaki çizgi ve pinlere giden fare olaylarını yutmamalıdır
+  const diffPane = map.getPane(MAP_PANES.DIFF_BUBBLES) ?? map.createPane(MAP_PANES.DIFF_BUBBLES);
+  diffPane.style.zIndex = '470';
+  diffPane.style.pointerEvents = 'none';
 }

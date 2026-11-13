@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { Layers, User, Route as RouteIcon, MapPin, ArrowRight, AlertTriangle, PencilLine } from 'lucide-react';
-import { useRoutesQuery } from '../api';
+import { Layers, User, Route as RouteIcon, MapPin, ArrowRight, AlertTriangle, PencilLine, Tags, Palette } from 'lucide-react';
 import {
   useStopDraftStore,
   useRouteStore,
@@ -9,8 +8,14 @@ import {
   selectHasUnsavedRoutes,
   selectStopChangeCount,
   selectAffectedRouteIds,
+  useCatalogRoutes,
+  useRouteInfoStore,
+  selectHasUnsavedRouteInfos,
+  selectEffectiveRouteInfos,
+  selectRouteInfoChangeCount,
 } from '../store';
-import { ROUTES_PATH, linkClickHandler } from '../routing/location';
+import { ROUTES_PATH, ROUTE_INFO_PATH, linkClickHandler } from '../routing/location';
+import { ROUTE_COLOR_GROUP_ORDER, routeColorGroup, toCssColor, DEFAULT_ROUTE_COLOR } from '../model';
 
 const APP_TITLE = 'Transit Route Studio';
 
@@ -50,6 +55,29 @@ const RoutePreview: React.FC = () => (
   </svg>
 );
 
+/** Hat bilgileri kartının üst kısmı: her kod grubunun hatları, güncel renkleriyle (canlı). */
+const RouteColorPreview: React.FC = () => {
+  const routes = useRouteInfoStore((state) => selectEffectiveRouteInfos(state));
+  const groups = ROUTE_COLOR_GROUP_ORDER
+    .map((key) => ({ key, routes: routes.filter((r) => routeColorGroup(r.routeShortName) === key) }))
+    .filter((g) => g.routes.length > 0);
+
+  return (
+    <div className="h-28 px-4 py-3 flex items-end gap-2 bg-[length:16px_16px] bg-[linear-gradient(#1e293b_1px,transparent_1px),linear-gradient(90deg,#1e293b_1px,transparent_1px)]" aria-hidden="true">
+      {groups.map((g) => (
+        <div key={g.key} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+          <div className="w-full flex flex-col-reverse gap-px rounded overflow-hidden">
+            {g.routes.slice(0, 12).map((r) => (
+              <div key={r.routeId} className="h-1" style={{ backgroundColor: toCssColor(r.routeColor, DEFAULT_ROUTE_COLOR) }} />
+            ))}
+          </div>
+          <span className="text-[11px] font-mono text-slate-500">{g.key}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const Stat: React.FC<{ icon: React.ReactNode; value: React.ReactNode; label: string }> = ({ icon, value, label }) => (
   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-950/60 border border-slate-800">
     <span className="text-slate-500">{icon}</span>
@@ -60,13 +88,19 @@ const Stat: React.FC<{ icon: React.ReactNode; value: React.ReactNode; label: str
 
 /** Ana sayfa (/): çalışma alanlarına kartlarla giriş. */
 export const HomePage: React.FC = () => {
-  const { data: routes, isLoading: isRoutesLoading } = useRoutesQuery();
+  const { data: routes, isLoading: isRoutesLoading } = useCatalogRoutes();
   const stopCount = useStopDraftStore((state) => Object.keys(state.published).length);
   const stopChangeCount = useStopDraftStore(selectStopChangeCount);
   const affectedCount = useStopDraftStore((state) => selectAffectedRouteIds(state).length);
   const hasUndo = useEditHistoryStore(selectCanUndo);
   const hasUnsavedRoutes = useRouteStore(selectHasUnsavedRoutes);
   const hasUnsaved = hasUndo || hasUnsavedRoutes;
+  const hasUnsavedRouteInfos = useRouteInfoStore(selectHasUnsavedRouteInfos);
+  const routeInfoChangeCount = useRouteInfoStore(selectRouteInfoChangeCount);
+  const routeInfoCount = useRouteInfoStore((state) => (state.isLoaded ? selectEffectiveRouteInfos(state).length : null));
+  const groupCount = useRouteInfoStore(
+    (state) => new Set(selectEffectiveRouteInfos(state).map((r) => routeColorGroup(r.routeShortName)).filter(Boolean)).size
+  );
 
   useEffect(() => {
     document.title = APP_TITLE;
@@ -74,6 +108,7 @@ export const HomePage: React.FC = () => {
     if (Object.keys(useStopDraftStore.getState().published).length === 0) {
       void useStopDraftStore.getState().loadStops();
     }
+    if (!useRouteInfoStore.getState().isLoaded) void useRouteInfoStore.getState().loadRouteInfos();
   }, []);
 
   return (
@@ -154,6 +189,53 @@ export const HomePage: React.FC = () => {
                 <span className="font-mono text-xs text-slate-500">{ROUTES_PATH}</span>
                 <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-400 group-hover:text-blue-300">
                   Düzenleyiciyi aç
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </div>
+            </div>
+          </a>
+
+          <a
+            href={ROUTE_INFO_PATH}
+            onClick={linkClickHandler(ROUTE_INFO_PATH)}
+            className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-900/80 overflow-hidden transition-all hover:border-violet-500/60 hover:shadow-[0_0_0_4px_rgba(139,92,246,0.12)] focus-visible:outline-none focus-visible:border-violet-500 focus-visible:shadow-[0_0_0_4px_rgba(139,92,246,0.25)]"
+          >
+            <div className="border-b border-slate-800 bg-slate-900">
+              <RouteColorPreview />
+            </div>
+
+            <div className="flex flex-col gap-4 p-5 flex-1">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 shrink-0 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+                  <Tags className="w-5 h-5 text-violet-300" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Hat Bilgileri</h3>
+                  <p className="mt-0.5 text-sm text-slate-400">
+                    Hatların kodunu, adını, türünü ve renklerini düzenleyin; yeni hat ekleyin ya da hat silin.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Stat icon={<RouteIcon className="w-4 h-4" />} value={routeInfoCount ?? '…'} label="hat" />
+                <Stat icon={<Palette className="w-4 h-4" />} value={routeInfoCount === null ? '…' : groupCount} label="renk grubu" />
+              </div>
+
+              {hasUnsavedRouteInfos && (
+                <div className="flex flex-wrap gap-2 text-sm">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-violet-500/10 border border-violet-500/30 text-violet-300">
+                    <PencilLine className="w-4 h-4" />
+                    Kaydedilmemiş değişiklik var
+                    {routeInfoChangeCount > 0 && <span className="text-violet-400/80">· {routeInfoChangeCount} hat</span>}
+                  </span>
+                </div>
+              )}
+
+              <div className="mt-auto flex items-center justify-between pt-2 border-t border-slate-800">
+                <span className="font-mono text-xs text-slate-500">{ROUTE_INFO_PATH}</span>
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-violet-300 group-hover:text-violet-200">
+                  Hat bilgilerini aç
                   <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
               </div>

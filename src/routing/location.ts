@@ -6,11 +6,16 @@ import { useSyncExternalStore } from 'react';
  *
  * Sayfalar:
  *   /                 -> ana sayfa
- *   /routes[/{kod}]   -> haritalı hat düzenleyici (seçili hat adresle eşlenir: useRouteUrlSync)
+ *   /routes[/{kod}]       -> haritalı hat düzenleyici (seçili hat adresle eşlenir: useRouteUrlSync)
+ *   /route-info[/{kod}]   -> hat bilgileri (kod, ad, tür, renk; yeni / silinen hatlar)
+ *
+ * Hat kodunda `/` olabilir (B2/A, 16/A): taban adresten sonraki yolun tamamı hat kodudur, adres
+ * `/routes/B2/A` olarak okunur görünür. Kod parçaları ayrı ayrı kodlanır, `/` korunur.
  */
 
 export const HOME_PATH = '/';
 export const ROUTES_PATH = '/routes';
+export const ROUTE_INFO_PATH = '/route-info';
 
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((listener) => listener());
@@ -25,8 +30,39 @@ export function navigate(path: string, options: { replace?: boolean } = {}): voi
   emit();
 }
 
+/** Adres `base` ya da altında mı. */
+export function isUnderPath(base: string, pathname: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
 export function isRoutesPath(pathname: string): boolean {
-  return pathname === ROUTES_PATH || pathname.startsWith(`${ROUTES_PATH}/`);
+  return isUnderPath(ROUTES_PATH, pathname);
+}
+
+export function isRouteInfoPath(pathname: string): boolean {
+  return isUnderPath(ROUTE_INFO_PATH, pathname);
+}
+
+/** `base` altındaki hat adresi: `/routes/B2/A`. */
+export function pathWithCode(base: string, code: string): string {
+  return `${base}/${code.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export type ParsedCodePath = { kind: 'list' } | { kind: 'code'; code: string } | { kind: 'invalid' };
+
+/** `base` altındaki adresi çözer; `base` dışındaki adresler için null. */
+export function parseCodePath(base: string, pathname: string): ParsedCodePath | null {
+  if (!isUnderPath(base, pathname)) return null;
+  let path = pathname;
+  while (path.endsWith('/')) path = path.slice(0, -1);
+  if (path === base) return { kind: 'list' };
+  try {
+    const code = path.slice(base.length + 1).split('/').map(decodeURIComponent).join('/');
+    if (code) return { kind: 'code', code };
+  } catch {
+    // Bozuk kodlama
+  }
+  return { kind: 'invalid' };
 }
 
 export function usePathname(): string {

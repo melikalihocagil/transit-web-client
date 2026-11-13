@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, Compass, MapPin } from 'lucide-react';
 import { isDeletedStop } from '../../model';
-import { useRouteStore, useStopDraftStore, selectAffectedRoutes } from '../../store';
-import { useRoutesQuery } from '../../api';
+import { useRouteStore, useStopDraftStore, selectAffectedRoutes, useCatalogRoutes } from '../../store';
 
 const toHex = (color: string | undefined, fallback: string) =>
   color ? `#${color.replace('#', '')}` : fallback;
@@ -20,7 +19,7 @@ export const AffectedRoutesDropdown: React.FC = () => {
   const published = useStopDraftStore((state) => state.published);
   const selectRouteIntent = useRouteStore((state) => state.selectRouteIntent);
   const activeRouteId = useRouteStore((state) => state.routeId);
-  const { data: routes = [] } = useRoutesQuery();
+  const { data: routes = [] } = useCatalogRoutes();
 
   const routeIds = Object.keys(affectedRoutes);
 

@@ -1,26 +1,31 @@
 import L from 'leaflet';
 
 /**
- * Aktif hatta ait durak pini üretir.
- * - Normal Durak: Mavi dairesel rozet, sıra numarası yazar
- * - Sevk Noktası (Terminal): Kehribar (Amber) rozet
+ * Aktif hatta ait durak pini: hattın renginde dairesel rozet, sıra numarası hattın yazı renginde.
+ * Sevk noktası (terminal) aynı renkte, kehribar çerçeve ve biraz daha büyük.
  */
-export function createRouteStopIcon(sequence: number, isTerminal: boolean): L.DivIcon {
-  const bg = isTerminal ? '#f59e0b' : '#2563eb';
-  const border = isTerminal ? '#fde68a' : '#ffffff';
+export function createRouteStopIcon(
+  sequence: number,
+  isTerminal: boolean,
+  color = '#2563eb',
+  textColor = '#ffffff'
+): L.DivIcon {
+  const size = isTerminal ? 26 : 24;
+  const border = isTerminal ? '3px solid #f59e0b' : '2px solid #ffffff';
 
   const html = `
     <div style="
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
+      width: ${size}px;
+      height: ${size}px;
+      box-sizing: border-box;
       border-radius: 9999px;
-      background-color: ${bg};
-      border: 2px solid ${border};
+      background-color: ${color};
+      border: ${border};
       box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-      color: #ffffff;
+      color: ${textColor};
       font-family: monospace;
       font-size: 10px;
       font-weight: 700;
@@ -34,8 +39,8 @@ export function createRouteStopIcon(sequence: number, isTerminal: boolean): L.Di
   return L.divIcon({
     html,
     className: 'transit-stop-marker',
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -43,14 +48,14 @@ export function createRouteStopIcon(sequence: number, isTerminal: boolean): L.Di
  * Rota çizgisi üzerindeki ara kılavuz nokta (Via) tutamacı.
  * Küçük beyaz daire, mavi çerçeveli, sürüklenebilir.
  */
-export function createViaHandleIcon(): L.DivIcon {
+export function createViaHandleIcon(color = '#3b82f6'): L.DivIcon {
   const html = `
     <div style="
       width: 14px;
       height: 14px;
       border-radius: 9999px;
       background-color: #ffffff;
-      border: 2.5px solid #3b82f6;
+      border: 2.5px solid ${color};
       box-shadow: 0 2px 4px rgba(0,0,0,0.35);
       cursor: grab;
       user-select: none;
@@ -136,15 +141,15 @@ export function createGhostStopIcon(sequence?: number): L.DivIcon {
  * Canlı mavi merkez, beyaz çerçeve, parlak dış gölge. Yalnızca görseldir: fare olaylarını
  * yakalamaz (olaylar alttaki yakalama çizgisine düşer), bu yüzden haritada takılı kalamaz.
  */
-export function createLineDragHandleIcon(): L.DivIcon {
+export function createLineDragHandleIcon(color = '#3b82f6'): L.DivIcon {
   const html = `
     <div style="
       width: 16px;
       height: 16px;
       border-radius: 9999px;
-      background-color: #3b82f6;
+      background-color: ${color};
       border: 2.5px solid #ffffff;
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5), 0 2px 6px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 0 0 2px ${color}80, 0 2px 6px rgba(0, 0, 0, 0.45);
       user-select: none;
       transform-origin: center;
       transition: transform 0.12s ease-out;
@@ -169,5 +174,80 @@ export function createBlinkRingIcon(): L.DivIcon {
     className: 'transit-blink-marker',
     iconSize: [30, 30],
     iconAnchor: [15, 15],
+  });
+}
+
+export interface DiffBubbleValue {
+  /** Taslağın değeri (biçimlenmiş). */
+  value: string;
+  /** Yayındakine göre fark (biçimlenmiş, işaretli); fark yoksa null. */
+  delta: string | null;
+  /** Fark artış mı? (true: kırmızı, false: yeşil) */
+  increased: boolean;
+}
+
+/** Fark baloncuklarının ölçeği; pane üzerinde zoom'a göre güncellenir. */
+export const DIFF_BUBBLE_SCALE_VAR = '--diff-bubble-scale';
+
+/**
+ * Taslağın yayındakinden ayrıştığı bölgenin baloncuğu: taslağın mesafe ve süresi, yanlarında
+ * parantez içinde fark. Nokta baloncuğun alt ucudur (çizgi üzerinde). Boyutu pane'deki
+ * `DIFF_BUBBLE_SCALE_VAR` değişkeniyle ölçeklenir (alt uç sabit kalır).
+ */
+export function createDiffBubbleIcon(
+  distance: DiffBubbleValue,
+  duration: DiffBubbleValue,
+  increaseColor: string,
+  decreaseColor: string
+): L.DivIcon {
+  const part = ({ value, delta, increased }: DiffBubbleValue) =>
+    delta === null
+      ? value
+      : `${value} <span style="color: ${increased ? increaseColor : decreaseColor}; font-weight: 700;">(${delta})</span>`;
+
+  const html = `
+    <div style="
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      padding-bottom: 8px;
+      transform: translateX(-50%) scale(var(${DIFF_BUBBLE_SCALE_VAR}, 1));
+      transform-origin: 50% 100%;
+    ">
+      <div style="
+        position: relative;
+        white-space: nowrap;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: rgba(15, 23, 42, 0.92);
+        border: 1px solid #334155;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        color: #e2e8f0;
+        font-family: sans-serif;
+        font-size: 11px;
+        line-height: 1.35;
+        user-select: none;
+      ">
+        ${part(distance)} &middot; ${part(duration)}
+        <div style="
+          position: absolute;
+          left: 50%;
+          bottom: -5px;
+          width: 8px;
+          height: 8px;
+          transform: translateX(-50%) rotate(45deg);
+          background: rgba(15, 23, 42, 0.92);
+          border-right: 1px solid #334155;
+          border-bottom: 1px solid #334155;
+        "></div>
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'transit-diff-bubble',
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
   });
 }

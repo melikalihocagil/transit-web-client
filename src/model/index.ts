@@ -33,11 +33,39 @@ export type { Leg } from './leg';
 
 // 5. Navigasyon ve Süre/Mesafe (RouteNavigation)
 export type { RouteNavigation } from './route-navigation';
-export { formatDuration, formatDistance } from './route-navigation';
+export {
+  formatDuration,
+  formatDistance,
+  formatDistanceDelta,
+  formatDurationDelta,
+} from './route-navigation';
+
+// 5.1. Taslak / yayındaki farkı (ortak duraklar arasındaki ayrışma bölgeleri)
+export type { RouteShape, RouteDiffRegion } from './route-diff';
+export { diffRoutes } from './route-diff';
 
 // 6. Hat Tanımı (Route)
 export type { Route } from './route';
 export { formatRouteTitle } from './route';
+
+// 6.1. Hat Bilgisi (/api/route-info: ad, tür, renk) ve hat renkleri
+export type { RouteInfo, RouteInfoData } from './route-info';
+export { isSameRouteInfo, isSameRouteInfoList, ROUTE_TYPES, routeTypeLabel } from './route-info';
+export {
+  normalizeHexColor,
+  toCssColor,
+  DEFAULT_ROUTE_COLOR,
+  DEFAULT_ROUTE_TEXT_COLOR,
+  contrastRatio,
+  MIN_TEXT_CONTRAST,
+  suggestTextColor,
+  lightenColor,
+  ROUTE_COLOR_GROUPS,
+  ROUTE_COLOR_GROUP_ORDER,
+  parseRouteCode,
+  routeColorGroup,
+  distributeGroupColors,
+} from './route-color';
 
 // 7. Hat Detay Paketi (RouteDetail)
 export type { RouteDetail } from './route-detail';

@@ -1,6 +1,8 @@
 import React from 'react';
 import { ArrowRight, Compass, AlertTriangle } from 'lucide-react';
 import type { Route } from '../../../model';
+import { toCssColor, DEFAULT_ROUTE_COLOR, DEFAULT_ROUTE_TEXT_COLOR } from '../../../model';
+import { useRouteInfoStore, selectIsRouteInfoChanged, selectIsNewRoute } from '../../../store';
 
 interface RouteCardProps {
   route: Route;
@@ -18,8 +20,10 @@ export const RouteCard: React.FC<RouteCardProps> = ({
   hasLocalDraft = false,
   onSelect,
 }) => {
-  const badgeBg = route.routeColor ? `#${route.routeColor.replace('#', '')}` : '#2563eb';
-  const badgeText = route.routeTextColor ? `#${route.routeTextColor.replace('#', '')}` : '#ffffff';
+  const badgeBg = toCssColor(route.routeColor, DEFAULT_ROUTE_COLOR);
+  const badgeText = toCssColor(route.routeTextColor, DEFAULT_ROUTE_TEXT_COLOR);
+  const isNew = useRouteInfoStore((state) => selectIsNewRoute(state, route.routeId));
+  const isInfoChanged = useRouteInfoStore((state) => selectIsRouteInfoChanged(state, route.routeId));
 
   return (
     <button
@@ -54,6 +58,18 @@ export const RouteCard: React.FC<RouteCardProps> = ({
               <AlertTriangle className="w-3 h-3" />
               Etkilendi
             </span>
+          )}
+
+          {isNew ? (
+            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              Yeni Hat
+            </span>
+          ) : (
+            isInfoChanged && (
+              <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30">
+                Bilgi Değişti
+              </span>
+            )
           )}
 
           {hasLocalDraft && (

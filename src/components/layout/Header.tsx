@@ -1,26 +1,27 @@
-import React, { useEffect } from 'react';
-import { Layers, User, Undo2, Redo2, Save, RotateCcw, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Layers, Undo2, Redo2, Save, RotateCcw, Loader2 } from 'lucide-react';
 import {
   useStopDraftStore,
   useRouteStore,
   useEditHistoryStore,
   saveAll,
+  discardLocalWork,
   selectHasUnsavedRoutes,
   selectCanUndo,
   selectCanRedo,
   selectStopChangeCount,
 } from '../../store';
 import { AffectedRoutesDropdown } from './AffectedRoutesDropdown';
+import { ConfirmDialog } from './ConfirmDialog';
 import { HOME_PATH, linkClickHandler } from '../../routing/location';
-
-interface HeaderProps {
-  operatorId?: string;
-}
 
 const iconButton =
   'p-1 rounded text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer';
 
-/** Durak taslağı araç çubuğu: değişiklik sayısı, geri al / ileri al, sıfırla; durak ve hat taslaklarını kaydet. */
+/**
+ * Düzenleme araç çubuğu (tek yer): değişiklik sayısı, geri al / ileri al, sıfırla; durak ve hat taslaklarını kaydet.
+ * Sıfırla onay ister: kaydedilmemiş tüm yerel çalışma atılır, son kayıttaki sunucu haline dönülür.
+ */
 const StopDraftToolbar: React.FC = () => {
   const changeCount = useStopDraftStore(selectStopChangeCount);
   const hasUnsavedRoutes = useRouteStore(selectHasUnsavedRoutes);
@@ -31,7 +32,7 @@ const StopDraftToolbar: React.FC = () => {
   const error = useStopDraftStore((state) => state.error);
   const undo = useEditHistoryStore((state) => state.undo);
   const redo = useEditHistoryStore((state) => state.redo);
-  const resetDraft = useStopDraftStore((state) => state.resetDraft);
+  const [isResetDialogOpen, setResetDialogOpen] = useState(false);
 
   // Etkilenen hat listesi duraklardan ayrı yüklenir
   useEffect(() => {
@@ -39,7 +40,14 @@ const StopDraftToolbar: React.FC = () => {
   }, []);
 
   const isSaving = status === 'saving';
-  const canSave = status === 'idle' && (canUndo || hasUnsavedRoutes);
+  // Kaydedilmemiş yerel çalışma: geçmişte adım ya da kayıtlı halinden farklı hat taslağı
+  const hasLocalWork = canUndo || hasUnsavedRoutes;
+  const canSave = status === 'idle' && hasLocalWork;
+
+  const confirmReset = () => {
+    setResetDialogOpen(false);
+    void discardLocalWork();
+  };
 
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -68,14 +76,28 @@ const StopDraftToolbar: React.FC = () => {
         </button>
         <button
           type="button"
-          onClick={resetDraft}
-          disabled={changeCount === 0 || isSaving}
+          onClick={() => setResetDialogOpen(true)}
+          disabled={!hasLocalWork || status !== 'idle'}
           className={iconButton}
-          title="Tüm durak değişikliklerini geri al (Ctrl+Z ile geri getirilebilir)"
+          title="Sıfırla: kaydedilmemiş tüm değişiklikleri at"
         >
           <RotateCcw className="w-4 h-4" />
         </button>
       </div>
+
+      <ConfirmDialog
+        open={isResetDialogOpen}
+        title="Tüm değişiklikler silinsin mi?"
+        message={
+          <>
+            Kaydedilmemiş tüm durak ve hat değişiklikleriniz kalıcı olarak silinecek ve son kaydedilen hale
+            dönülecek. <strong className="text-rose-300">Bu işlem geri alınamaz.</strong>
+          </>
+        }
+        confirmLabel="Sıfırla"
+        onConfirm={confirmReset}
+        onCancel={() => setResetDialogOpen(false)}
+      />
 
       <button
         type="button"
@@ -93,7 +115,7 @@ const StopDraftToolbar: React.FC = () => {
   );
 };
 
-export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => {
+export const Header: React.FC = () => {
   return (
     <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-20 shrink-0">
       <div className="flex items-center gap-3">
@@ -114,15 +136,7 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
         </span>
       </div>
 
-      <div className="flex items-center gap-3">
-        <StopDraftToolbar />
-
-        <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-sm text-slate-300">
-          <User className="w-4 h-4 text-blue-400" />
-          <span className="text-slate-400">Operatör:</span>
-          <span className="font-medium text-slate-200">{operatorId}</span>
-        </div>
-      </div>
+      <StopDraftToolbar />
 
     </header>
   );

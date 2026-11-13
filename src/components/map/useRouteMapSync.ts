@@ -6,6 +6,8 @@ import {
   useActiveRoute,
   useMapHighlightStore,
   selectEffectiveStops,
+  useRouteInfoStore,
+  selectRouteInfo,
 } from '../../store';
 import { MAP_PANES } from './mapPanes';
 import {
@@ -13,25 +15,46 @@ import {
   DRAFT_LINE_STYLE,
   DRAFT_LINE_HOVER_STYLE,
   DRAFT_LINE_HIT_STYLE,
+  DIFF_INCREASE_COLOR,
+  DIFF_DECREASE_COLOR,
 } from './mapStyles';
 import {
   createRouteStopIcon,
   createGhostStopIcon,
   createViaHandleIcon,
   createLineDragHandleIcon,
+  createDiffBubbleIcon,
+  DIFF_BUBBLE_SCALE_VAR,
 } from './markerFactory';
 import {
   isTerminalStop,
   locateLegs,
   formatDistance,
   formatDuration,
+  formatDistanceDelta,
+  formatDurationDelta,
+  diffRoutes,
   type Stop,
   type RouteNavigation,
   type LegSlot,
+  toCssColor,
+  lightenColor,
+  DEFAULT_ROUTE_COLOR,
+  DEFAULT_ROUTE_TEXT_COLOR,
 } from '../../model';
 
 /** Bu kadar pikselden az hareket eden basış sürükleme değil, tıklama sayılır. */
 const CLICK_TOLERANCE_PX = 4;
+/** Fark baloncuğu bu zoom'da 1:1 boyuttadır; her zoom adımında ölçek √2 kat değişir. */
+const DIFF_BUBBLE_BASE_ZOOM = 15;
+const DIFF_BUBBLE_MIN_SCALE = 0.7;
+const DIFF_BUBBLE_MAX_SCALE = 1.6;
+
+function diffBubbleScale(zoom: number): number {
+  const scale = Math.pow(2, (zoom - DIFF_BUBBLE_BASE_ZOOM) / 2);
+  return Math.min(DIFF_BUBBLE_MAX_SCALE, Math.max(DIFF_BUBBLE_MIN_SCALE, scale));
+}
+
 /** Bırakma noktasına bu kadar piksel yakın şehir durağına kilitlenilir. */
 const STOP_SNAP_RADIUS_PX = 20;
 
@@ -88,6 +111,13 @@ export function useRouteMapSync(map: L.Map | null): void {
   const published = useRouteStore((state) => state.published);
   const activeRoute = useActiveRoute();
   const isRouting = useRouteStore((state) => state.isRouting);
+  // Çizgi ve pinler hattın renginde (hat bilgisi taslağı ?? yayındaki)
+  const routeColor = useRouteInfoStore((state) =>
+    toCssColor(selectRouteInfo(state, routeId)?.routeColor, DEFAULT_ROUTE_COLOR)
+  );
+  const routeTextColor = useRouteInfoStore((state) =>
+    toCssColor(selectRouteInfo(state, routeId)?.routeTextColor, DEFAULT_ROUTE_TEXT_COLOR)
+  );
 
   const addStopIntent = useRouteStore((state) => state.addStopIntent);
   const removeStopIntent = useRouteStore((state) => state.removeStopIntent);
@@ -142,6 +172,9 @@ export function useRouteMapSync(map: L.Map | null): void {
 
     pubLineGroup.clearLayers();
     draftLineGroup.clearLayers();
+
+    const lineStyle: L.PolylineOptions = { ...DRAFT_LINE_STYLE, color: routeColor };
+    const lineHoverStyle: L.PathOptions = { ...DRAFT_LINE_HOVER_STYLE, color: lightenColor(routeColor) };
     draftStopsGroup.clearLayers();
     draftViasGroup.clearLayers();
 
@@ -160,7 +193,7 @@ export function useRouteMapSync(map: L.Map | null): void {
     const showLineHandle = (latlng: L.LatLng) => {
       if (!lineHandle) {
         lineHandle = L.marker(latlng, {
-          icon: createLineDragHandleIcon(),
+          icon: createLineDragHandleIcon(routeColor),
           pane: MAP_PANES.DRAFT_VIAS,
           interactive: false,
           keyboard: false,
@@ -218,7 +251,7 @@ export function useRouteMapSync(map: L.Map | null): void {
 
       if (draftCoords.length > 0) {
         const draftPolyline = L.polyline(draftCoords, {
-          ...DRAFT_LINE_STYLE,
+          ...lineStyle,
           opacity: 0.5,
           dashArray: '4, 6',
           interactive: false,
@@ -281,7 +314,7 @@ export function useRouteMapSync(map: L.Map | null): void {
           map.off('mousemove', handleMove);
           document.removeEventListener('mouseup', handleUp);
           map.dragging.enable();
-          visible.setStyle(DRAFT_LINE_STYLE);
+          visible.setStyle(lineStyle);
           removeLineHandle();
           endLineDrag = null;
         };
@@ -293,7 +326,7 @@ export function useRouteMapSync(map: L.Map | null): void {
         if (coords.length < 2) return;
 
         const visible = L.polyline(coords, {
-          ...DRAFT_LINE_STYLE,
+          ...lineStyle,
           interactive: false,
           renderer: draftSvgRenderer,
         });
@@ -322,12 +355,12 @@ export function useRouteMapSync(map: L.Map | null): void {
 
         hit.on('mouseover', () => {
           if (endLineDrag) return;
-          visible.setStyle(DRAFT_LINE_HOVER_STYLE);
+          visible.setStyle(lineHoverStyle);
         });
 
         hit.on('mouseout', () => {
           if (endLineDrag) return;
-          visible.setStyle(DRAFT_LINE_STYLE);
+          visible.setStyle(lineStyle);
           removeLineHandle();
         });
 
@@ -348,7 +381,7 @@ export function useRouteMapSync(map: L.Map | null): void {
           hit.closeTooltip();
 
           const onLine = pointOnLine(e.latlng);
-          visible.setStyle(DRAFT_LINE_HOVER_STYLE);
+          visible.setStyle(lineHoverStyle);
           showLineHandle(onLine);
           startLineDrag(slot, visible, onLine, map.mouseEventToContainerPoint(e.originalEvent));
         });
@@ -363,7 +396,7 @@ export function useRouteMapSync(map: L.Map | null): void {
     activeRoute.stops.forEach((stop, index) => {
       const isTerminal = isTerminalStop(stop);
       const marker = L.marker([stop.lat, stop.lon], {
-        icon: createRouteStopIcon(index + 1, isTerminal),
+        icon: createRouteStopIcon(index + 1, isTerminal, routeColor, routeTextColor),
         pane: MAP_PANES.DRAFT_STOPS,
         draggable: true,
       });
@@ -410,7 +443,7 @@ export function useRouteMapSync(map: L.Map | null): void {
     // 4. Aktif Hat Via Tutamaçları (Sürüklenebilir & Mıknatıslı)
     activeRoute.vias.forEach((via) => {
       const viaMarker = L.marker([via.lat, via.lon], {
-        icon: createViaHandleIcon(),
+        icon: createViaHandleIcon(routeColor),
         pane: MAP_PANES.DRAFT_VIAS,
         draggable: true,
       });
@@ -454,6 +487,8 @@ export function useRouteMapSync(map: L.Map | null): void {
     published,
     activeRoute,
     isRouting,
+    routeColor,
+    routeTextColor,
     addStopIntent,
     removeStopIntent,
     addViaIntent,
@@ -491,4 +526,63 @@ export function useRouteMapSync(map: L.Map | null): void {
       group.remove();
     };
   }, [map, routeId, activeRoute, publishedStops, draggingStopId]);
+
+  // 4. Fark baloncukları: taslağın yayındakinden ayrıştığı her bölgede (ortak duraklar arası) taslak çizgi
+  // üzerinde kalıcı baloncuk. Taslağın mesafe/süresi ve parantez içinde farkı gösterir. Mesafe ve süresi
+  // yayındakiyle birebir aynı olan bölge gösterilmez. Rota hesabı ya da durak sürüklemesi sürerken gizlenir.
+  // Boyut zoom'a göre ölçeklenir (pane üzerindeki CSS değişkeni; baloncuklar yeniden kurulmaz).
+  useEffect(() => {
+    if (!map) return;
+    const pane = map.getPane(MAP_PANES.DIFF_BUBBLES);
+    if (!pane) return;
+    const applyScale = () => {
+      pane.style.setProperty(DIFF_BUBBLE_SCALE_VAR, String(diffBubbleScale(map.getZoom())));
+    };
+    applyScale();
+    map.on('zoom', applyScale);
+    return () => {
+      map.off('zoom', applyScale);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (!map || !routeId || !published || !activeRoute || isRouting || draggingStopId) return;
+
+    const regions = diffRoutes(activeRoute, published).filter(
+      (r) => r.draft.distance !== r.published.distance || r.draft.duration !== r.published.duration
+    );
+    if (regions.length === 0) return;
+
+    const group = L.layerGroup([], { pane: MAP_PANES.DIFF_BUBBLES }).addTo(map);
+    for (const region of regions) {
+      const distanceDelta = region.draft.distance - region.published.distance;
+      const durationDelta = region.draft.duration - region.published.duration;
+      const icon = createDiffBubbleIcon(
+        {
+          value: formatDistance(region.draft.distance),
+          delta: formatDistanceDelta(distanceDelta),
+          increased: distanceDelta > 0,
+        },
+        {
+          value: formatDuration(region.draft.duration),
+          delta: formatDurationDelta(durationDelta),
+          increased: durationDelta > 0,
+        },
+        DIFF_INCREASE_COLOR,
+        DIFF_DECREASE_COLOR
+      );
+      group.addLayer(
+        L.marker([region.anchor.lat, region.anchor.lon], {
+          icon,
+          pane: MAP_PANES.DIFF_BUBBLES,
+          interactive: false,
+          keyboard: false,
+        })
+      );
+    }
+
+    return () => {
+      group.remove();
+    };
+  }, [map, routeId, published, activeRoute, isRouting, draggingStopId]);
 }

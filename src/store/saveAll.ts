@@ -105,3 +105,23 @@ export async function saveAll(): Promise<void> {
     });
   }
 }
+
+/**
+ * Header'daki Sıfırla (onaydan sonra): kaydedilmemiş tüm yerel çalışma atılır, son kayıttaki sunucu haline
+ * dönülür. Durak taslağı ve etkilenen hatlar sunucudan yeniden yüklenir, hat taslakları kayıtlı hale döner,
+ * geri al geçmişi temizlenir (geri alınamaz). Sunucuya yazılmış taslaklar silinmez.
+ * Sunucu verisi alınamazsa hiçbir şey değişmez.
+ */
+export async function discardLocalWork(): Promise<void> {
+  if (useStopDraftStore.getState().status !== 'idle') return;
+  try {
+    await useStopDraftStore.getState().reloadFromServer();
+  } catch (err) {
+    useStopDraftStore.setState({
+      error: err instanceof Error ? err.message : 'Sunucudaki taslaklar yüklenemedi',
+    });
+    return;
+  }
+  useRouteStore.getState().discardDrafts();
+  useEditHistoryStore.getState().clearHistory();
+}

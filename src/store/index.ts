@@ -30,4 +30,20 @@ export {
 export { useEditHistoryStore, selectCanUndo, selectCanRedo } from './editHistory';
 export { useMapHighlightStore } from './mapHighlight';
 export { routingPipeline } from './routingPipeline';
-export { saveAll } from './saveAll';
+export { saveAll, discardLocalWork } from './saveAll';
+export {
+  useRouteInfoStore,
+  isNewRouteId,
+  selectEffectiveRouteInfos,
+  selectRouteInfo,
+  selectRouteInfoChangeCount,
+  selectHasUnsavedRouteInfos,
+  selectIsRouteInfoChanged,
+  selectIsNewRoute,
+  selectCanUndoRouteInfo,
+  selectCanRedoRouteInfo,
+  type RouteInfoState,
+  type RouteInfoInput,
+  type RouteInfoPatch,
+} from './routeInfoStore';
+export { useCatalogRoutes } from './useCatalogRoutes';

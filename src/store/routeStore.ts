@@ -59,7 +59,8 @@ export interface RouteStoreState {
   moveViaIntent: (via: Via, lat: number, lon: number) => void;
   removeViaIntent: (via: Via) => void;
   snapViaIntent: (via: Via, targetStop: Stop) => void;
-  resetToPublishedIntent: () => void;
+  /** Tüm hat taslaklarını sunucudaki kayıtlı hale (`saved`) döndürür. Geçmişe yazılmaz (bkz. `discardLocalWork`). */
+  discardDrafts: () => void;
   clearRoute: () => void;
 }
 
@@ -486,15 +487,8 @@ export const useRouteStore = create<RouteStoreState>()(
         );
       },
 
-      resetToPublishedIntent: () => {
-        if (isSaveLocked()) return;
-        // Yalnızca seçili hattın taslağı silinir; diğer hatlar korunur. Geri alınabilir.
-        const { routeId, drafts } = get();
-        if (routeId === null || !(routeId in drafts)) return;
-        recordEdit();
-        const nextDrafts = { ...drafts };
-        delete nextDrafts[routeId];
-        set({ drafts: nextDrafts, error: null });
+      discardDrafts: () => {
+        set((state) => ({ drafts: { ...state.saved }, error: null }));
       },
 
       clearRoute: () => {
