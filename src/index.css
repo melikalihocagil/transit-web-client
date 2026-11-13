@@ -293,3 +293,23 @@ body,
   display: none;
   background: transparent;
 }
+
+/* Ana sayfa: hat kartındaki güzergâh çizimi soldan sağa çizilir (bkz. HomePage) */
+.transit-home-route {
+  stroke-dasharray: 420;
+  stroke-dashoffset: 420;
+  animation: transit-home-draw 1.4s ease-out 0.2s forwards;
+}
+
+@keyframes transit-home-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transit-home-route {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

@@ -26,7 +26,7 @@ interface SortableStopListProps {
   segmentTotals?: LegTotals[] | null;
   canRemove: boolean;
   onReorder: (fromIndex: number, toIndex: number) => void;
-  onRemoveStop: (stopId: string) => void;
+  onRemoveStop: (index: number) => void;
   onRemoveVia: (via: Via) => void;
   onFocusStop: (stop: Stop) => void;
 }

@@ -11,6 +11,7 @@ import {
   selectStopChangeCount,
 } from '../../store';
 import { AffectedRoutesDropdown } from './AffectedRoutesDropdown';
+import { HOME_PATH, linkClickHandler } from '../../routing/location';
 
 interface HeaderProps {
   operatorId?: string;
@@ -96,12 +97,18 @@ export const Header: React.FC<HeaderProps> = ({ operatorId = 'operator-1' }) => 
   return (
     <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-20 shrink-0">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-          <Layers className="w-5 h-5 text-blue-400" />
-        </div>
-        <div>
+        {/* Logo ve başlık ana sayfaya döner */}
+        <a
+          href={HOME_PATH}
+          onClick={linkClickHandler(HOME_PATH)}
+          title="Ana sayfa"
+          className="flex items-center gap-3 rounded-lg -m-1 p-1 hover:bg-slate-800/60 transition-colors"
+        >
+          <div className="w-10 h-10 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+            <Layers className="w-5 h-5 text-blue-400" />
+          </div>
           <h1 className="text-base font-semibold tracking-tight text-white">Transit Route Studio</h1>
-        </div>
+        </a>
         <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium border border-blue-500/20">
           Admin Client
         </span>

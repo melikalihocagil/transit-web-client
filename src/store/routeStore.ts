@@ -45,7 +45,12 @@ export interface RouteStoreState {
 
   // UDF Niyetleri (Intent Actions)
   selectRouteIntent: (routeId: string) => Promise<void>;
-  removeStopIntent: (stopId: string) => void;
+  /**
+   * Hattın `index` sırasındaki durağını hattan çıkarır (durağın kendisine ve diğer hatlara dokunmaz).
+   * Sıra numarasıyla çalışır: aynı durak hatta iki kez geçiyorsa yalnızca o sıra çıkar. Durağın iki
+   * yanındaki bacakların via'ları silinir; komşular doğrudan bağlanır. Hat 2 duraktan aza düşemez.
+   */
+  removeStopIntent: (index: number) => void;
   reorderStopsIntent: (fromIndex: number, toIndex: number) => void;
   /** `slot` verilirse durak o bacağın içine eklenir (aralık ikiye bölünür); yoksa sona eklenir. */
   addStopIntent: (stop: Stop, slot?: LegSlot) => void;
@@ -58,7 +63,8 @@ export interface RouteStoreState {
   clearRoute: () => void;
 }
 
-type PersistedRouteState = Pick<RouteStoreState, 'routeId' | 'drafts' | 'saved'>;
+/** Kalıcı hafızaya yazılan alanlar. Seçili hat (`routeId`) yazılmaz: adresten okunur (bkz. useRouteUrlSync). */
+type PersistedRouteState = Pick<RouteStoreState, 'drafts' | 'saved'>;
 
 /** Kayıt sürerken (durak + hat kaydı tek akışta; bkz. `saveAll`) hat taslakları da düzenlenemez. */
 const isSaveLocked = (): boolean => useStopDraftStore.getState().status === 'saving';
@@ -354,17 +360,28 @@ export const useRouteStore = create<RouteStoreState>()(
         }
       },
 
-      removeStopIntent: (stopId: string) => {
+      removeStopIntent: (index: number) => {
         const working = workingDraft(get());
         if (!working) return;
         const { routeId, draft } = working;
-        if (draft.stopIds.length <= 2) return; // Güzergah en az 2 duraktan oluşmalıdır
+        const stopId = draft.stopIds[index];
+        if (stopId === undefined) return;
+        if (draft.stopIds.length <= 2) {
+          set({ error: 'Hat en az 2 duraktan oluşmalıdır; durak çıkarılamadı' });
+          return;
+        }
+
+        // Yalnızca bu sıranın iki yanındaki bacakların via'ları silinir
+        const prevId = draft.stopIds[index - 1];
+        const nextId = draft.stopIds[index + 1];
+        const isAdjacentLeg = (v: Via) =>
+          (v.fromStopId === prevId && v.toStopId === stopId) || (v.fromStopId === stopId && v.toStopId === nextId);
 
         commitRouteEdit(
           routeId,
           {
-            stopIds: draft.stopIds.filter((id) => id !== stopId),
-            vias: draft.vias.filter((v) => v.fromStopId !== stopId && v.toStopId !== stopId),
+            stopIds: draft.stopIds.filter((_, i) => i !== index),
+            vias: draft.vias.filter((v) => !isAdjacentLeg(v)),
           },
           set,
           get
@@ -498,7 +515,6 @@ export const useRouteStore = create<RouteStoreState>()(
       // Sürüm 2: taslak yalnızca durak sırası (`stopIds`) + via'lar; koordinat ve navigation tutulmaz
       version: 2,
       partialize: (state): PersistedRouteState => ({
-        routeId: state.routeId,
         drafts: state.drafts,
         saved: state.saved,
       }),
@@ -514,7 +530,6 @@ export const useRouteStore = create<RouteStoreState>()(
         const rawDrafts =
           version < 1 ? (routeId !== null && persisted.draft ? { [routeId]: persisted.draft } : {}) : persisted.drafts;
         return {
-          routeId,
           drafts: fromPersistedRecord(rawDrafts),
           saved: version < 1 ? {} : fromPersistedRecord(persisted.saved),
         } satisfies PersistedRouteState;
@@ -522,20 +537,12 @@ export const useRouteStore = create<RouteStoreState>()(
       // Yüklemede yinelenen via sıra numaralarını sessizce düzelt
       merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<PersistedRouteState>;
+        // Eski kayıtlardaki `routeId` yok sayılır; seçili hat adresten gelir
         return {
           ...currentState,
-          routeId: persisted.routeId ?? currentState.routeId,
           drafts: normalizeDrafts(persisted.drafts ?? currentState.drafts),
           saved: persisted.saved ?? currentState.saved,
         };
-      },
-      // Sayfa yenilenince seçili hat yeniden yüklenir
-      onRehydrateStorage: () => (state) => {
-        const routeId = state?.routeId;
-        if (!state || !routeId) return;
-        queueMicrotask(() => {
-          void state.selectRouteIntent(routeId);
-        });
       },
     }
   )

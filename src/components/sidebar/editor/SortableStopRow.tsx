@@ -9,7 +9,8 @@ interface SortableStopRowProps {
   stop: Stop;
   index: number;
   canRemove: boolean;
-  onRemove: (stopId: string) => void;
+  /** Durağı hattan çıkarır (sıra numarasıyla; aynı durak hatta iki kez geçebilir). */
+  onRemove: (index: number) => void;
   onFocus: (stop: Stop) => void;
   isFirst: boolean;
   isLast: boolean;
@@ -41,6 +42,11 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
     <div
       ref={setNodeRef}
       style={style}
+      // Sağ tık: durağı hattan çıkarır (haritadaki numaralı pinle aynı); Ctrl+Z ile geri alınır
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onRemove(index);
+      }}
       className={`group flex items-center gap-2 p-2 rounded-lg border transition-all text-sm ${
         isDragging
           ? 'bg-blue-950/60 border-blue-500 shadow-lg'
@@ -99,8 +105,8 @@ export const SortableStopRow: React.FC<SortableStopRowProps> = ({
       <button
         type="button"
         disabled={!canRemove}
-        onClick={() => onRemove(stop.stopId)}
-        title={canRemove ? 'Durağı hattan çıkar' : 'Hat en az 2 duraktan oluşmalıdır'}
+        onClick={() => onRemove(index)}
+        title={canRemove ? 'Durağı hattan çıkar (ya da satıra sağ tıklayın)' : 'Hat en az 2 duraktan oluşmalıdır'}
         className="text-slate-500 hover:text-rose-400 disabled:opacity-20 disabled:hover:text-slate-500 p-1.5 rounded hover:bg-rose-500/10 transition-colors cursor-pointer disabled:cursor-not-allowed"
       >
         <Trash2 className="w-4 h-4" />

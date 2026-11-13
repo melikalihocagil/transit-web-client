@@ -90,6 +90,7 @@ export function useRouteMapSync(map: L.Map | null): void {
   const isRouting = useRouteStore((state) => state.isRouting);
 
   const addStopIntent = useRouteStore((state) => state.addStopIntent);
+  const removeStopIntent = useRouteStore((state) => state.removeStopIntent);
   const addViaIntent = useRouteStore((state) => state.addViaIntent);
   const moveViaIntent = useRouteStore((state) => state.moveViaIntent);
   const removeViaIntent = useRouteStore((state) => state.removeViaIntent);
@@ -357,7 +358,8 @@ export function useRouteMapSync(map: L.Map | null): void {
       });
     }
 
-    // 3. Aktif Hat Durak Pinleri (Sürüklenebilir)
+    // 3. Aktif Hat Durak Pinleri (Sürüklenebilir; sağ tıkla hattan çıkarılır)
+    const { setHighlightedStopId, setDraggingStopId } = useMapHighlightStore.getState();
     activeRoute.stops.forEach((stop, index) => {
       const isTerminal = isTerminalStop(stop);
       const marker = L.marker([stop.lat, stop.lon], {
@@ -369,12 +371,20 @@ export function useRouteMapSync(map: L.Map | null): void {
       marker.bindTooltip(
         `<div style="font-family: sans-serif; font-size: 11px;">
           <strong>#${index + 1}</strong> ${stop.stopId} - ${stop.stopName}
+          <div style="color: #f87171; font-size: 10px; margin-top: 2px;">Sağ tık: hattan çıkar</div>
         </div>`,
         { direction: 'top', offset: [0, -12] }
       );
 
+      // Sağ tık: durak hattan çıkar (yalnızca bu sıra; durağın kendisi ve diğer hatlar değişmez). Ctrl+Z ile geri alınır
+      marker.on('contextmenu', (e) => {
+        L.DomEvent.stopPropagation(e);
+        L.DomEvent.preventDefault(e.originalEvent);
+        setHighlightedStopId(null);
+        removeStopIntent(index);
+      });
+
       // Üzerine gelince aynı id'li hayalet ve şehir noktası yanıp söner (durak katmanı çizer)
-      const { setHighlightedStopId, setDraggingStopId } = useMapHighlightStore.getState();
       marker.on('mouseover', () => setHighlightedStopId(stop.stopId));
       marker.on('mouseout', () => setHighlightedStopId(null));
 
@@ -445,6 +455,7 @@ export function useRouteMapSync(map: L.Map | null): void {
     activeRoute,
     isRouting,
     addStopIntent,
+    removeStopIntent,
     addViaIntent,
     moveViaIntent,
     removeViaIntent,
