@@ -27,6 +27,10 @@ export const GisMapCanvas: React.FC = () => {
       maxZoom: ESRI_LIGHT_GRAY_TILE.maxZoom,
       zoomControl: false,
       preferCanvas: true,
+      // Kademeli zoom: tekerlek ve +/- yarım seviye, kesirli seviyelere oturur (tam seviye zıplaması yok)
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 120,
     });
 
     // 1. Özel Katman Düzlemlerini (Custom Panes) Başlat

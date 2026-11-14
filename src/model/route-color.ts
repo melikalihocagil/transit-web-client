@@ -96,6 +96,14 @@ export function lightenColor(color: string, amount = 0.15): string {
   return `#${hslToHex(h, s, Math.min(0.85, l + amount))}`;
 }
 
+/** Rengin koyu tonu (aynı ton, düşük açıklık). Hat çizgisinin kenarlığında kullanılır. */
+export function darkenColor(color: string, amount = 0.2): string {
+  const hex = normalizeHexColor(color);
+  if (!hex) return color;
+  const [h, s, l] = hexToHsl(hex);
+  return `#${hslToHex(h, s, Math.max(0.08, l - amount))}`;
+}
+
 // ---- Kod grupları ----
 
 /**

@@ -13,7 +13,10 @@ import { MAP_PANES } from './mapPanes';
 import {
   PUBLISHED_LINE_STYLE,
   DRAFT_LINE_STYLE,
-  DRAFT_LINE_HOVER_STYLE,
+  DRAFT_LINE_CASING_STYLE,
+  DRAFT_LINE_OVERLAP_CASING_STYLE,
+  DRAFT_LINE_FLASH_STYLE,
+  routeLineWidths,
   DRAFT_LINE_HIT_STYLE,
   DIFF_INCREASE_COLOR,
   DIFF_DECREASE_COLOR,
@@ -34,11 +37,13 @@ import {
   formatDistanceDelta,
   formatDurationDelta,
   diffRoutes,
+  findSelfOverlaps,
+  mergeLegCoordinates,
   type Stop,
-  type RouteNavigation,
+  type Coordinate,
   type LegSlot,
   toCssColor,
-  lightenColor,
+  darkenColor,
   DEFAULT_ROUTE_COLOR,
   DEFAULT_ROUTE_TEXT_COLOR,
 } from '../../model';
@@ -58,18 +63,8 @@ function diffBubbleScale(zoom: number): number {
 /** Bırakma noktasına bu kadar piksel yakın şehir durağına kilitlenilir. */
 const STOP_SNAP_RADIUS_PX = 20;
 
-/**
- * Navigasyon bacaklarından (legs) tüm polyline koordinatlarını derler.
- */
-function extractPolylineCoords(navigation: RouteNavigation | null): [number, number][] {
-  if (!navigation || !navigation.legs) return [];
-  const coords: [number, number][] = [];
-  for (const leg of navigation.legs) {
-    for (const c of leg.coordinates) {
-      coords.push([c.lat, c.lon]);
-    }
-  }
-  return coords;
+function toLatLngs(coords: Coordinate[]): [number, number][] {
+  return coords.map((c) => [c.lat, c.lon]);
 }
 
 /**
@@ -130,6 +125,10 @@ export function useRouteMapSync(map: L.Map | null): void {
   const draftLineGroupRef = useRef<L.LayerGroup | null>(null);
   const draftStopsGroupRef = useRef<L.LayerGroup | null>(null);
   const draftViasGroupRef = useRef<L.LayerGroup | null>(null);
+  // Renderer'lar harita başına bir kez kurulur: Leaflet bir renderer'ı ilk kullanımda haritaya ekler ve
+  // clearLayers ile kaldırmaz; her çizimde yenisini kurmak boş <svg>'lerin birikmesine yol açar.
+  const publishedRendererRef = useRef<L.SVG | null>(null);
+  const draftRendererRef = useRef<L.SVG | null>(null);
   const lastFittedRouteIdRef = useRef<string | null>(null);
 
   // 1. Katman gruplarını başlat ve haritaya ekle
@@ -140,7 +139,11 @@ export function useRouteMapSync(map: L.Map | null): void {
     const draftLineGroup = L.layerGroup([], { pane: MAP_PANES.DRAFT_LINE }).addTo(map);
     const draftStopsGroup = L.layerGroup([], { pane: MAP_PANES.DRAFT_STOPS }).addTo(map);
     const draftViasGroup = L.layerGroup([], { pane: MAP_PANES.DRAFT_VIAS }).addTo(map);
+    const publishedRenderer = L.svg({ pane: MAP_PANES.PUBLISHED_LINE });
+    const draftRenderer = L.svg({ pane: MAP_PANES.DRAFT_LINE });
 
+    publishedRendererRef.current = publishedRenderer;
+    draftRendererRef.current = draftRenderer;
     publishedLineGroupRef.current = pubLineGroup;
     draftLineGroupRef.current = draftLineGroup;
     draftStopsGroupRef.current = draftStopsGroup;
@@ -151,7 +154,11 @@ export function useRouteMapSync(map: L.Map | null): void {
       draftLineGroup.remove();
       draftStopsGroup.remove();
       draftViasGroup.remove();
+      publishedRenderer.remove();
+      draftRenderer.remove();
 
+      publishedRendererRef.current = null;
+      draftRendererRef.current = null;
       publishedLineGroupRef.current = null;
       draftLineGroupRef.current = null;
       draftStopsGroupRef.current = null;
@@ -165,8 +172,18 @@ export function useRouteMapSync(map: L.Map | null): void {
     const draftLineGroup = draftLineGroupRef.current;
     const draftStopsGroup = draftStopsGroupRef.current;
     const draftViasGroup = draftViasGroupRef.current;
+    const pubSvgRenderer = publishedRendererRef.current;
+    const draftSvgRenderer = draftRendererRef.current;
 
-    if (!map || !pubLineGroup || !draftLineGroup || !draftStopsGroup || !draftViasGroup) {
+    if (
+      !map ||
+      !pubLineGroup ||
+      !draftLineGroup ||
+      !draftStopsGroup ||
+      !draftViasGroup ||
+      !pubSvgRenderer ||
+      !draftSvgRenderer
+    ) {
       return;
     }
 
@@ -174,7 +191,8 @@ export function useRouteMapSync(map: L.Map | null): void {
     draftLineGroup.clearLayers();
 
     const lineStyle: L.PolylineOptions = { ...DRAFT_LINE_STYLE, color: routeColor };
-    const lineHoverStyle: L.PathOptions = { ...DRAFT_LINE_HOVER_STYLE, color: lightenColor(routeColor) };
+    // Kenarlık hattın renginin koyu tonudur (Google Maps tarzı ince, uyumlu kenar)
+    const casingColor = darkenColor(routeColor);
     draftStopsGroup.clearLayers();
     draftViasGroup.clearLayers();
 
@@ -182,6 +200,25 @@ export function useRouteMapSync(map: L.Map | null): void {
     // temizlikte ikisi de sökülür (sürükleme ortasında veri değişse de harita kilitli kalmaz)
     let lineHandle: L.Marker | null = null;
     let endLineDrag: (() => void) | null = null;
+
+    // Üzerine gelinen (ya da sürüklenen) bacak: hattın üstüne o bacağın koordinatlarından geçici, beyaz ve ince
+    // bir parlama çizgisi eklenir; opaklığı CSS ile yanıp söner (.transit-leg-flash). Aynı renkte bir çizgi
+    // altındaki hatla ayırt edilemezdi. Fare çıkınca kaldırılır; kalıcı bacak çizgisi yoktur.
+    let highlightLine: L.Polyline | null = null;
+
+    const unhighlightLeg = () => {
+      highlightLine?.remove();
+      highlightLine = null;
+    };
+
+    const highlightLeg = (latlngs: [number, number][]) => {
+      unhighlightLeg();
+      highlightLine = L.polyline(latlngs, {
+        ...DRAFT_LINE_FLASH_STYLE,
+        weight: widths.flash,
+        renderer: draftSvgRenderer,
+      }).addTo(draftLineGroup);
+    };
 
     const removeLineHandle = () => {
       if (lineHandle) {
@@ -204,9 +241,32 @@ export function useRouteMapSync(map: L.Map | null): void {
       }
     };
 
+    // Çizgi kalınlıkları zoom'a bağlıdır: bu çalışmada kurulan çizgiler zoom bitince yeniden boyutlanır
+    let widths = routeLineWidths(map.getZoom());
+    let publishedLine: L.Polyline | null = null;
+    let pendingLine: L.Polyline | null = null;
+    // Tek liste çizim: hattın tamamı tek kenarlık + tek çizgi; etkileşim bacak başına saydam yakalama çizgisinde
+    const routeLines: { casing: L.Polyline; visible: L.Polyline }[] = [];
+    const legHits: L.Polyline[] = [];
+
+    const applyWidths = () => {
+      widths = routeLineWidths(map.getZoom());
+      publishedLine?.setStyle({ weight: widths.published, dashArray: widths.publishedDash });
+      pendingLine?.setStyle({ weight: widths.pending });
+      for (const { casing, visible } of routeLines) {
+        casing.setStyle({ weight: widths.casing });
+        visible.setStyle({ weight: widths.line });
+      }
+      for (const hit of legHits) hit.setStyle({ weight: widths.hit });
+      highlightLine?.setStyle({ weight: widths.flash });
+    };
+    map.on('zoomend', applyWidths);
+
     const cleanup = () => {
+      map.off('zoomend', applyWidths);
       endLineDrag?.();
       removeLineHandle();
+      unhighlightLeg();
     };
 
     if (!routeId) {
@@ -216,14 +276,15 @@ export function useRouteMapSync(map: L.Map | null): void {
 
     // --- A) Alt Katman: PUBLISHED Rota Çizgisi ---
     if (published?.navigation) {
-      const pubCoords = extractPolylineCoords(published.navigation);
+      const pubCoords = toLatLngs(mergeLegCoordinates(published.navigation.legs).coords);
       if (pubCoords.length > 0) {
-        const pubSvgRenderer = L.svg({ pane: MAP_PANES.PUBLISHED_LINE });
-        const pubPolyline = L.polyline(pubCoords, {
+        publishedLine = L.polyline(pubCoords, {
           ...PUBLISHED_LINE_STYLE,
+          weight: widths.published,
+          dashArray: widths.publishedDash,
           renderer: pubSvgRenderer,
         });
-        pubLineGroup.addLayer(pubPolyline);
+        pubLineGroup.addLayer(publishedLine);
       }
     }
 
@@ -241,33 +302,33 @@ export function useRouteMapSync(map: L.Map | null): void {
     const navigation = activeRoute.navigation;
     const slots = locateLegs(activeRoute.stops, activeRoute.vias);
     const isAligned = navigation != null && navigation.legs.length === slots.length && !isRouting;
-    const draftSvgRenderer = L.svg({ pane: MAP_PANES.DRAFT_LINE });
 
     if (!isAligned || !navigation) {
       // Hesap sürüyor ya da bacaklar tutarsız: kesikli tek çizgi, etkileşimsiz
       const draftCoords = navigation
-        ? extractPolylineCoords(navigation)
+        ? toLatLngs(mergeLegCoordinates(navigation.legs).coords)
         : activeRoute.stops.map((s) => [s.lat, s.lon] as [number, number]);
 
       if (draftCoords.length > 0) {
-        const draftPolyline = L.polyline(draftCoords, {
+        pendingLine = L.polyline(draftCoords, {
           ...lineStyle,
+          weight: widths.pending,
           opacity: 0.5,
           dashArray: '4, 6',
           interactive: false,
           renderer: draftSvgRenderer,
         });
-        draftLineGroup.addLayer(draftPolyline);
+        draftLineGroup.addLayer(pendingLine);
       }
     } else {
-      // Her bacak ayrı çizilir: görünür çizgi (etkileşimsiz) + saydam kalın yakalama çizgisi
+      // Hat tek liste olarak çizilir (aşağıda); her bacağın yalnızca saydam yakalama çizgisi ayrıdır
       const legCountBySegment = new Map<number, number>();
       for (const slot of slots) {
         legCountBySegment.set(slot.segmentIndex, (legCountBySegment.get(slot.segmentIndex) ?? 0) + 1);
       }
 
       // Basılı tutulan bacak çizgi boyunca sürüklenir; bırakınca via ya da durak eklenir
-      const startLineDrag = (slot: LegSlot, visible: L.Polyline, onLine: L.LatLng, startPoint: L.Point) => {
+      const startLineDrag = (slot: LegSlot, onLine: L.LatLng, startPoint: L.Point) => {
         map.dragging.disable();
 
         const handleMove = (e: L.LeafletMouseEvent) => {
@@ -314,7 +375,7 @@ export function useRouteMapSync(map: L.Map | null): void {
           map.off('mousemove', handleMove);
           document.removeEventListener('mouseup', handleUp);
           map.dragging.enable();
-          visible.setStyle(lineStyle);
+          unhighlightLeg();
           removeLineHandle();
           endLineDrag = null;
         };
@@ -325,15 +386,12 @@ export function useRouteMapSync(map: L.Map | null): void {
         const coords = leg.coordinates.map((c) => [c.lat, c.lon] as [number, number]);
         if (coords.length < 2) return;
 
-        const visible = L.polyline(coords, {
-          ...lineStyle,
-          interactive: false,
-          renderer: draftSvgRenderer,
-        });
         const hit = L.polyline(coords, {
           ...DRAFT_LINE_HIT_STYLE,
+          weight: widths.hit,
           renderer: draftSvgRenderer,
         });
+        legHits.push(hit);
 
         const fromStop = activeRoute.stops[slot.segmentIndex];
         const toStop = activeRoute.stops[slot.segmentIndex + 1];
@@ -349,18 +407,18 @@ export function useRouteMapSync(map: L.Map | null): void {
 
         // Çizgi üzerindeki en yakın nokta (işaret ve tıklamayla eklenen via buraya oturur)
         const pointOnLine = (latlng: L.LatLng): L.LatLng => {
-          const closest = visible.closestLayerPoint(map.latLngToLayerPoint(latlng));
+          const closest = hit.closestLayerPoint(map.latLngToLayerPoint(latlng));
           return closest ? map.layerPointToLatLng(closest) : latlng;
         };
 
         hit.on('mouseover', () => {
           if (endLineDrag) return;
-          visible.setStyle(lineHoverStyle);
+          highlightLeg(coords);
         });
 
         hit.on('mouseout', () => {
           if (endLineDrag) return;
-          visible.setStyle(lineStyle);
+          unhighlightLeg();
           removeLineHandle();
         });
 
@@ -381,14 +439,45 @@ export function useRouteMapSync(map: L.Map | null): void {
           hit.closeTooltip();
 
           const onLine = pointOnLine(e.latlng);
-          visible.setStyle(lineHoverStyle);
+          highlightLeg(coords);
           showLineHandle(onLine);
-          startLineDrag(slot, visible, onLine, map.mouseEventToContainerPoint(e.originalEvent));
+          startLineDrag(slot, onLine, map.mouseEventToContainerPoint(e.originalEvent));
         });
 
-        draftLineGroup.addLayer(visible);
-        draftLineGroup.addLayer(hit);
       });
+
+      // Katman sırası:
+      // 1. Taban: bacaklar tek listede birleştirilir; tek kenarlık + tek çizgi. Tek SVG yolu kendi üstüne binen
+      //    kısımları tek seferde boyar: bacak eklerinde iz, bölünmüş yolda iç içe şerit, koyulaşma olmaz.
+      // 2. Ortak yol: rotanın gerçekten kendi üstünden geçtiği kısımlar ikinci geçiş olarak kenarlığıyla yeniden
+      //    çizilir (uçlar düz kesik); ortak yola giriş ve çıkış noktaları kenarlıkla seçilir.
+      // 3. En üstte bacak başına saydam yakalama çizgileri (vurgu çizgisi gerektiğinde bunların da üstüne eklenir).
+      const merged = mergeLegCoordinates(navigation.legs);
+      const addRouteLine = (latlngs: [number, number][], casingStyle: L.PolylineOptions, lineCap?: L.LineCapShape) => {
+        const casing = L.polyline(latlngs, {
+          ...casingStyle,
+          color: casingColor,
+          weight: widths.casing,
+          renderer: draftSvgRenderer,
+        });
+        const visible = L.polyline(latlngs, {
+          ...lineStyle,
+          weight: widths.line,
+          ...(lineCap ? { lineCap } : {}),
+          interactive: false,
+          renderer: draftSvgRenderer,
+        });
+        routeLines.push({ casing, visible });
+        draftLineGroup.addLayer(casing);
+        draftLineGroup.addLayer(visible);
+      };
+
+      addRouteLine(toLatLngs(merged.coords), DRAFT_LINE_CASING_STYLE);
+      for (const part of findSelfOverlaps(merged.coords)) {
+        addRouteLine(toLatLngs(part), DRAFT_LINE_OVERLAP_CASING_STYLE, 'butt');
+      }
+
+      for (const hit of legHits) draftLineGroup.addLayer(hit);
     }
 
     // 3. Aktif Hat Durak Pinleri (Sürüklenebilir; sağ tıkla hattan çıkarılır)
@@ -535,13 +624,19 @@ export function useRouteMapSync(map: L.Map | null): void {
     if (!map) return;
     const pane = map.getPane(MAP_PANES.DIFF_BUBBLES);
     if (!pane) return;
-    const applyScale = () => {
-      pane.style.setProperty(DIFF_BUBBLE_SCALE_VAR, String(diffBubbleScale(map.getZoom())));
+    const applyScale = (zoom: number) => {
+      pane.style.setProperty(DIFF_BUBBLE_SCALE_VAR, String(diffBubbleScale(zoom)));
     };
-    applyScale();
-    map.on('zoom', applyScale);
+    // Animasyonlu zoom'da hedef zoom baştan bilinir: ölçek, konumla aynı sürede (CSS geçişi) değişir.
+    // Animasyonsuz zoom (sıkıştırma, kesirli adım) için zoom sonunda da uygulanır.
+    const handleZoomAnim = (e: L.ZoomAnimEvent) => applyScale(e.zoom);
+    const handleZoomEnd = () => applyScale(map.getZoom());
+    applyScale(map.getZoom());
+    map.on('zoomanim', handleZoomAnim);
+    map.on('zoomend', handleZoomEnd);
     return () => {
-      map.off('zoom', applyScale);
+      map.off('zoomanim', handleZoomAnim);
+      map.off('zoomend', handleZoomEnd);
     };
   }, [map]);
 

@@ -313,3 +313,18 @@ body,
     stroke-dashoffset: 0;
   }
 }
+
+/* Üzerine gelinen hat bacağı: hattın üstündeki beyaz parlama çizgisi yanıp söner */
+.transit-leg-flash {
+  animation: transit-leg-flash 0.9s ease-in-out infinite;
+}
+
+@keyframes transit-leg-flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}

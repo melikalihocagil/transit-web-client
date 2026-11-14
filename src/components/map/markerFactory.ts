@@ -213,6 +213,7 @@ export function createDiffBubbleIcon(
       padding-bottom: 8px;
       transform: translateX(-50%) scale(var(${DIFF_BUBBLE_SCALE_VAR}, 1));
       transform-origin: 50% 100%;
+      transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
     ">
       <div style="
         position: relative;

@@ -37,6 +37,11 @@ const LEGACY_STORAGE_KEY = 'transit-stops-staging';
 export interface StopDraftState {
   published: StopRecord;
   draft: StopDraft;
+  /**
+   * Sunucuda kayıtlı durak taslağı (son yükleme / kayıttaki hali; published ile aynı olanlar atılmış).
+   * Kaydet'in aktifliği bununla karşılaştırılarak bulunur. Henüz yüklenmediyse null. Persist edilmez.
+   */
+  saved: StopRecord | null;
   status: 'idle' | 'loading' | 'saving';
   error: string | null;
   /** Hat → o hattın geometrisini değiştiren durak id'leri. Draft her değiştiğinde `/api/stops/move` sonucuyla güncellenir. */
@@ -121,6 +126,16 @@ function setAffectedForStop(
   return next;
 }
 
+/** Sunucudaki durak taslağı; published ile aynı olan kayıtlar atılır (yerel taslak da öyle tutulur). */
+function toSavedRecord(stops: Stop[] | null | undefined, published: StopRecord): StopRecord {
+  const record: StopRecord = {};
+  for (const stop of stops ?? []) {
+    const original = published[stop.stopId];
+    if (!original || !isSameStopData(original, stop)) record[stop.stopId] = stop;
+  }
+  return record;
+}
+
 function toAffectedRecord(rows: AffectedRoute[]): AffectedRoutes {
   const record: AffectedRoutes = {};
   for (const row of rows) {
@@ -183,6 +198,7 @@ export const useStopDraftStore = create<StopDraftState>()(
       return {
         published: {},
         draft: {},
+        saved: null,
         status: 'idle',
         error: null,
         affectedRoutes: {},
@@ -193,16 +209,18 @@ export const useStopDraftStore = create<StopDraftState>()(
           try {
             const data = await stopApi.fetchStops();
             const published = toRecord(data.published);
+            const saved = toSavedRecord(data.draft, published);
             const { draft } = get();
             const hasLocalWork = Object.keys(draft).length > 0 || hasEditHistory();
 
             // Draft, `status` ile aynı set'te yazılır: subscribe bunu sunucu verisi sayar (bkz. aşağısı)
             if (hasLocalWork) {
               // Kaydedilmemiş yerel iş korunur; published'a geçmiş kayıtlar normalize ile düşer.
-              set({ published, draft: normalizeDraft(draft, published), status: 'idle' });
+              set({ published, saved, draft: normalizeDraft(draft, published), status: 'idle' });
             } else {
               set({
                 published,
+                saved,
                 draft: normalizeDraft(toRecord(data.draft), published),
                 status: 'idle',
               });
@@ -255,6 +273,7 @@ export const useStopDraftStore = create<StopDraftState>()(
             // `status` aynı set'te idle'a döner: abonelik bunu sunucu verisi sayar, durak başına istek atmaz
             set({
               published,
+              saved: toSavedRecord(data.draft, published),
               draft: normalizeDraft(toRecord(data.draft), published),
               affectedRoutes: toAffectedRecord(rows),
               status: 'idle',
@@ -275,6 +294,7 @@ export const useStopDraftStore = create<StopDraftState>()(
           }
           set({
             published,
+            saved: toSavedRecord(fresh.draft, published),
             draft: normalizeDraft(nextDraft, published),
             status: 'idle',
           });
@@ -410,6 +430,25 @@ export function selectEffectiveStops(state: StopDraftState): Stop[] {
 
   effectiveCache = { published, draft, result };
   return result;
+}
+
+/**
+ * Durak taslağı sunucudakinden farklı mı (Kaydet'e gidecek durak değişikliği var mı)?
+ * Silme işaretleri sayılmaz: backend'e gönderilemez, yerelde kalır. Sunucu taslağı henüz yüklenmediyse
+ * yerel taslakta kayıt olup olmadığına bakılır.
+ */
+export function selectHasUnsavedStops(state: Pick<StopDraftState, 'draft' | 'saved'>): boolean {
+  const { draft, saved } = state;
+  if (saved === null) return Object.keys(draft).length > 0;
+
+  let liveCount = 0;
+  for (const entry of Object.values(draft)) {
+    if (isDeletedStop(entry)) continue;
+    liveCount++;
+    const savedStop = saved[entry.stopId];
+    if (!savedStop || !isSameStopData(savedStop, entry)) return true;
+  }
+  return liveCount !== Object.keys(saved).length;
 }
 
 export const selectStopChangeCount = (state: StopDraftState): number =>

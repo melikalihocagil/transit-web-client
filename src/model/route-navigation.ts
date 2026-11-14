@@ -8,6 +8,8 @@ export interface RouteNavigation {
 
 export function formatDuration(seconds: number): string {
   const mins = Math.round(seconds / 60);
+  // Dakikaya yuvarlanınca 0 görünecek kısa süreler saniye olarak gösterilir
+  if (mins === 0) return `${Math.round(seconds)} sn`;
   return mins < 60 ? `${mins} dk` : `${Math.floor(mins / 60)} sa ${mins % 60} dk`;
 }
 

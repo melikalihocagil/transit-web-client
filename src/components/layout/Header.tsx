@@ -10,6 +10,7 @@ import {
   selectCanUndo,
   selectCanRedo,
   selectStopChangeCount,
+  selectHasUnsavedStops,
 } from '../../store';
 import { AffectedRoutesDropdown } from './AffectedRoutesDropdown';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -25,6 +26,7 @@ const iconButton =
 const StopDraftToolbar: React.FC = () => {
   const changeCount = useStopDraftStore(selectStopChangeCount);
   const hasUnsavedRoutes = useRouteStore(selectHasUnsavedRoutes);
+  const hasUnsavedStops = useStopDraftStore(selectHasUnsavedStops);
   // Ortak geçmiş (durak + hat): adım varsa sunucuya yazılmamış düzenleme vardır
   const canUndo = useEditHistoryStore(selectCanUndo);
   const canRedo = useEditHistoryStore(selectCanRedo);
@@ -40,9 +42,10 @@ const StopDraftToolbar: React.FC = () => {
   }, []);
 
   const isSaving = status === 'saving';
-  // Kaydedilmemiş yerel çalışma: geçmişte adım ya da kayıtlı halinden farklı hat taslağı
-  const hasLocalWork = canUndo || hasUnsavedRoutes;
-  const canSave = status === 'idle' && hasLocalWork;
+  // Kaydet yalnızca sunucudaki halden gerçekten farklı bir taslak varsa aktif (geri alınıp eski haline
+  // dönen düzenleme sayılmaz). Sıfırla, geçmişte adım varken de aktiftir (atılacak yerel iş vardır).
+  const canSave = status === 'idle' && (hasUnsavedStops || hasUnsavedRoutes);
+  const hasLocalWork = canUndo || hasUnsavedStops || hasUnsavedRoutes;
 
   const confirmReset = () => {
     setResetDialogOpen(false);

@@ -44,6 +44,14 @@ export {
 export type { RouteShape, RouteDiffRegion } from './route-diff';
 export { diffRoutes } from './route-diff';
 
+// 5.1.1. Bacakların tek çizgi olarak birleşik hali (haritada tek liste çizim)
+export type { MergedRouteLine } from './route-polyline';
+export { mergeLegCoordinates } from './route-polyline';
+
+// 5.2. Rotanın kendi üstünden geçtiği kısımlar (haritada ortak yola giriş/çıkışı göstermek için)
+export type { SelfOverlapOptions } from './route-overlap';
+export { findSelfOverlaps } from './route-overlap';
+
 // 6. Hat Tanımı (Route)
 export type { Route } from './route';
 export { formatRouteTitle } from './route';
@@ -60,6 +68,7 @@ export {
   MIN_TEXT_CONTRAST,
   suggestTextColor,
   lightenColor,
+  darkenColor,
   ROUTE_COLOR_GROUPS,
   ROUTE_COLOR_GROUP_ORDER,
   parseRouteCode,

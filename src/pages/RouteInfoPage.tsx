@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Layers,
-  User,
   Plus,
   Search,
   Palette,
@@ -229,14 +228,7 @@ export const RouteInfoPage: React.FC = () => {
             Hat Bilgileri
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <RouteInfoToolbar />
-          <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-800/80 border border-slate-700/60 text-sm text-slate-300">
-            <User className="w-4 h-4 text-blue-400" />
-            <span className="text-slate-400">Operatör:</span>
-            <span className="font-medium text-slate-200">operator-1</span>
-          </div>
-        </div>
+        <RouteInfoToolbar />
       </header>
 
       <div className="flex flex-1 overflow-hidden">

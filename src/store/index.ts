@@ -19,6 +19,7 @@ export {
   resolveStop,
   selectEffectiveStops,
   selectStopChangeCount,
+  selectHasUnsavedStops,
   selectAffectedRouteIds,
   selectAffectedRoutes,
   type AffectedRoutes,
